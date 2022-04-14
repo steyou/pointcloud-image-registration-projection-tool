@@ -5,67 +5,53 @@
 #include <pcl/impl/point_types.hpp>
 #include <unordered_map>
 /**
- * Returns the contents of a text file
+ * Returns the contents of a point cloud .dat file
  * @param abspath The absolute path of the file you want.
+ * @param sep A common string used before the group identifier string. Used to identify the beginning of a new group.
  */
-std::vector<std::string> readFile(std::string abspath) {
-    std::vector<std::string> lines;
+std::unordered_map<std::string, std::vector<std::string>> readFile(std::string abspath, std::string sep) {
+
     std::ifstream file(abspath);
+
+    std::vector<std::string> lineset;
+    std::unordered_map<std::string, std::vector<std::string>> finalMap;
+
+    std::string currentKey;
+
     if (file.is_open()) {
         std::string line;
         while (std::getline(file, line)) {
             // using printf() in all tests for consistency
             // printf("%s", line.c_str());
-            lines.push_back(line.c_str());
+            // lines.push_back(line.c_str());
+
+            //if the current line begins with a separator...
+            if (line.rfind(sep, 0) == 0) {
+                
+                //add to the map if there were lines before this separator.
+                if (lineset.size() > 0) {
+                    finalMap[currentKey] = lineset;
+                    lineset.clear();
+                }
+
+                //setting a new key indicates to add data under a new 'group'
+                currentKey = line.substr(line.find(sep) + 1);
+
+                //now continue -- go to next line in the file!
+            }
+            else {
+                //Nothing else to do except add the current line to the lineset. It is under the current separator.
+                lineset.push_back(line);
+            }
         }
         file.close();
     }
     else {
         throw std::runtime_error("File " + abspath + " not found.");
     }
-    return lines;
-}
-
-std::unordered_map<std::string, std::vector<std::string>> groupData(const std::vector<std::string> &raw, std::string sep) {
-    //TODO: throw error if there is no sep on the first line
-
-    //tempContainer stores each section before they are added to the dictionary
-    std::vector<std::string> tempContainer;
-    std::unordered_map<std::string, std::vector<std::string>> finalMap;
-
-    std::string currentKey;
-
-    for (int i = 0; i < raw.size(); i++) {
-        //if the current line begins with a separator...
-        if (raw.at(i).rfind(sep, 0) == 0) {
-            
-            //add to the map if this line is not the first.
-            if (tempContainer.size() > 0) {
-                finalMap[currentKey] = tempContainer;
-                tempContainer.clear();
-            }
-
-            //setting a new key indicates to add data under a new 'group'
-            currentKey = raw.at(i).substr(raw.at(i).find(sep) + 1);
-
-            //now go to next line in the file!
-        }
-        else {
-            //add the current line to the tempContainer
-            tempContainer.push_back(raw.at(i));
-            std::cout << raw.at(i) << std::endl;
-        }
-    }
-
-    //the last iteration does not insert into the map so it must be done manually.
-    //this if leaves no assumption that the raw array was empty.
-    if (!currentKey.empty() && tempContainer.size() > 0) {
-        finalMap[currentKey] = tempContainer;
-    }
-
     return finalMap;
-
 }
+
 
 // pcl::PointCloud<pcl::PointXYZ> pointCloudFromData(std::vector<std::string> rawData) {
 //     //Read the data file
@@ -97,7 +83,7 @@ int main(int argc, char* argv[]) {
     
     // std::cout << "sdlkfjhsdklf" << std::endl;
     // std::vector<std::string> rawpcdata = readFile(argv[1]);
-    std::unordered_map<std::string, std::vector<std::string>> asd = groupData(readFile(argv[1]), "% ");
+    // std::unordered_map<std::string, std::vector<std::string>> asd = groupData(readFile(argv[1]), "% ");
 
     //pcl::PointCloud<pcl::PointXYZ> pointcloud = pointCloudFromData(rawpcdata);
 
