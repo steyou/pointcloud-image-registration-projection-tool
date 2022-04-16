@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 2.9 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(pcl_project_image)
-find_package(PCL 1.3 REQUIRED COMPONENTS common io)
+find_package(PCL 1.2 REQUIRED)
 include_directories(${PCL_INCLUDE_DIRS})
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
