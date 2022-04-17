@@ -9,11 +9,10 @@
 #include <pcl/impl/point_types.hpp>
 #include <pcl/point_types.h>
 #include <pcl/visualization/pcl_visualizer.h>
-#include <pcl/common/angles.h> // for pcl::deg2rad
-#include <pcl/features/normal_3d.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/console/parse.h>
-// #include <chrono>
+#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/highgui.hpp>
 
 template <typename Out>
 void split(const std::string &s, char delim, Out result) {
@@ -35,9 +34,7 @@ std::vector<std::string> split(const std::string &s, char delim) {
  * @param abspath The absolute path of the file you want.
  * @param sep A common string used before the group identifier string. Used to identify the beginning of a new group.
  */
-std::unordered_map<std::string, std::vector<std::vector<std::string>>> readFile(const std::string abspath, const std::string sep) {
-
-    //TODO last line bug
+std::unordered_map<std::string, std::vector<std::vector<std::string>>> readDatFile(const std::string abspath, const std::string sep) {
 
     std::ifstream file(abspath);
 
@@ -49,9 +46,6 @@ std::unordered_map<std::string, std::vector<std::vector<std::string>>> readFile(
     if (file.is_open()) {
         std::string line;
         while (std::getline(file, line)) {
-            // using printf() in all tests for consistency
-            // printf("%s", line.c_str());
-            // lines.push_back(line.c_str());
 
             //if the current line begins with a separator...
             if (line.rfind(sep, 0) == 0) {
@@ -62,7 +56,8 @@ std::unordered_map<std::string, std::vector<std::vector<std::string>>> readFile(
                     lineset.clear();
                 }
                 
-                //setting a new key indicates to add data under a new 'group'
+                //Setting a new key indicates to add data under a new 'group'. We use the separator (current line) to index this group.
+                //The line has regex characters and spaces so they need to be removed before the line is usable enough as an index.
                 currentKey = line.substr(line.find(sep) + sep.length());
                 currentKey = currentKey.erase(currentKey.find("\r"));
 
@@ -70,7 +65,7 @@ std::unordered_map<std::string, std::vector<std::vector<std::string>>> readFile(
             }
             else {
                 //Nothing else to do except add the current line to the lineset. It is under the current separator.
-                //TODO space delimit?
+                //Also separate all the numbers into their own array values. I don't like this because it is potentially more memory consuming but it is more programmatically convenient.
                 lineset.push_back(
                     split(line, '\t')
                 );
@@ -80,7 +75,7 @@ std::unordered_map<std::string, std::vector<std::vector<std::string>>> readFile(
         //After iterating the last line we must add the lineset to the map manually because the loop does not do this.
         if (!currentKey.empty() && lineset.size() > 0) {
             finalMap[currentKey] = lineset;
-            //lineset.clear() redundant because garbage collection is about to happen.
+            //lineset.clear() is redundant because garbage collection is about to happen.
         }
         
         file.close();
@@ -92,7 +87,14 @@ std::unordered_map<std::string, std::vector<std::vector<std::string>>> readFile(
 }
 
 
+/**
+ * 
+ */
 
+
+/**
+ * Creates a point cloud from the data points
+ */
 pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloudFromData(const std::unordered_map<std::string, std::vector<std::vector<std::string>>> groups) {
     
     
@@ -101,20 +103,21 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloudFromData(const std::unordered_map<
     const std::string yCoordSep = "Calibrated yVector";
     const std::string zCoordSep = "Calibrated Distance";
 
-
+    //Are there an equal amount of xyz points? Every valid point must have a xyz value.
+    //x implies z via y so an explicit check is unecessary.
     if (groups.at(xCoordSep).size() != groups.at(yCoordSep).size() &&
-        groups.at(yCoordSep).size() != groups.at(zCoordSep).size()) {
+        groups.at(yCoordSep).size() != groups.at(zCoordSep).size() &&
+        groups.at(xCoordSep).at(0).size() != groups.at(yCoordSep).at(0).size() &&
+        groups.at(yCoordSep).at(0).size() != groups.at(zCoordSep).at(0).size()) {
 
             throw std::runtime_error("There are not an equal amount of points.");
 
     }
 
-    //set loop ends
-
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
 
-    for (int y = 0; y < 143; y++) {
-        for (int x = 0; x < 175; x++) {
+    for (int y = 0; y < groups.at(xCoordSep).size(); y++) {
+        for (int x = 0; x < groups.at(xCoordSep).at(0).size(); x++) {
             pcl::PointXYZ point;
             point.x = std::stod(groups.at(xCoordSep).at(y).at(x));
             point.y = std::stod(groups.at(yCoordSep).at(y).at(x));
@@ -132,6 +135,49 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloudFromData(const std::unordered_map<
     
 }
 
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudRGBFromData(const std::unordered_map<std::string, std::vector<std::vector<std::string>>> groups, cv::Mat texture) {
+    
+    //These are references to the xyz headers in the original file.
+    const std::string xCoordSep = "Calibrated xVector";
+    const std::string yCoordSep = "Calibrated yVector";
+    const std::string zCoordSep = "Calibrated Distance";
+
+    //Are there an equal amount of xyz points? Every valid point must have a xyz value.
+    //x implies z via y so an explicit check is unecessary.
+    if (groups.at(xCoordSep).size() != groups.at(yCoordSep).size() &&
+        groups.at(yCoordSep).size() != groups.at(zCoordSep).size() &&
+        groups.at(xCoordSep).at(0).size() != groups.at(yCoordSep).at(0).size() &&
+        groups.at(yCoordSep).at(0).size() != groups.at(zCoordSep).at(0).size()) {
+
+            throw std::runtime_error("There are not an equal amount of points.");
+
+    }
+    
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+
+    for (int y = 0; y < groups.at(xCoordSep).size(); y++) {
+        for (int x = 0; x < groups.at(xCoordSep).at(0).size(); x++) {
+            pcl::PointXYZRGB point;
+            point.x = std::stod(groups.at(xCoordSep).at(y).at(x));
+            point.y = std::stod(groups.at(yCoordSep).at(y).at(x));
+            point.z = std::stod(groups.at(zCoordSep).at(y).at(x));
+            point.r = texture.at<cv::Vec3b>(y, x)[0];
+            point.g = texture.at<cv::Vec3b>(y, x)[1];
+            point.b = texture.at<cv::Vec3b>(y, x)[2];
+            // texture.at(x, y);
+
+            // point.g = texture.at<uint8_t>(x, y)[1];
+            // point.b = texture.at<uint8_t>(x, y)[2];
+            cloud->points.push_back(point);
+        }
+    }
+
+    cloud->width = cloud->size();
+    cloud->height = 1;
+
+    return cloud;
+}
+
 pcl::visualization::PCLVisualizer::Ptr simpleVis (pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud) {
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer("3D Viewer"));
     viewer->setBackgroundColor (0, 0, 0);
@@ -141,6 +187,21 @@ pcl::visualization::PCLVisualizer::Ptr simpleVis (pcl::PointCloud<pcl::PointXYZ>
     viewer->initCameraParameters();
 //   return (nullptr);
     return (viewer);
+}
+
+pcl::visualization::PCLVisualizer::Ptr rgbVis (pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr cloud)
+{
+  // --------------------------------------------
+  // -----Open 3D viewer and add point cloud-----
+  // --------------------------------------------
+  pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
+  viewer->setBackgroundColor (0, 0, 0);
+  pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb(cloud);
+  viewer->addPointCloud<pcl::PointXYZRGB> (cloud, rgb, "sample cloud");
+  viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
+  viewer->addCoordinateSystem (0.01);
+  viewer->initCameraParameters ();
+  return (viewer);
 }
 
 int main(int argc, char* argv[]) {
@@ -165,17 +226,36 @@ int main(int argc, char* argv[]) {
     
     // std::cout << "sdlkfjhsdklf" << std::endl;
     // std::vector<std::string> rawpcdata = readFile(argv[1]);
-    const std::string debugpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/data/scene_1/depth_camera/depth_camera_1.dat";
-    std::unordered_map<std::string, std::vector<std::vector<std::string>>> asd = readFile(debugpath, "% ");
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud = pointCloudFromData(asd);
-    pcl::visualization::PCLVisualizer::Ptr viewer = simpleVis(pointcloud);
 
-    // boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
+    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/data/scene_1/depth_camera/depth_camera_1.dat";
+    const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/data/scene_1/photo.jpg";
+    // const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/data/scene_1/mask.png";
+
+    //Get the data
+    std::unordered_map<std::string, std::vector<std::vector<std::string>>> asd = readDatFile(debugpcpath, "% ");
+
+
+    cv::Mat image = cv::imread(debugimgpath, 1);
+    // cv::Mat im2;
+    cv::resize(image, image, cv::Size(176, 144), cv::INTER_LINEAR);
+    cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
+
+    //Create the point cloud
+    // pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud = pointCloudFromData(asd);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudRGBFromData(asd, image);
+
+    //Create the visualiser and render it.
+    // pcl::visualization::PCLVisualizer::Ptr viewer = simpleVis(pointcloud);
+    pcl::visualization::PCLVisualizer::Ptr viewer = rgbVis(pointcloud);
     while (!viewer->wasStopped()) {
         viewer->spin();
         // std::this_thread::sleep_for(100ms);
     }
+
+    // cv::namedWindow("sldkfjsfd", cv::WINDOW_NORMAL);
+    // cv::imshow("sldkfj", image);
+    // cv::waitKey(0);
 
     return 1;
 }
