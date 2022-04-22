@@ -10,6 +10,8 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <filesystem>
+#include <iostream>
 #include <pcl/point_cloud.h>
 #include <pcl/impl/point_types.hpp>
 #include <pcl/point_types.h>
@@ -18,6 +20,8 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
+
+namespace fs = std::filesystem;
 
 template <typename Out>
 void split(const std::string &s, char delim, Out result) {
@@ -28,11 +32,13 @@ void split(const std::string &s, char delim, Out result) {
     }
 }
 
+
 std::vector<std::string> split(const std::string &s, char delim) {
     std::vector<std::string> elems;
     split(s, delim, std::back_inserter(elems));
     return elems;
 }
+
 
 /**
  * Returns the contents of a point cloud .dat file
@@ -91,20 +97,20 @@ std::unordered_map<std::string, std::vector<std::vector<std::string>>> readDatFi
     else {
         throw std::runtime_error("File " + abspath + " not found.");
     }
+
+    //Did we reach the end without a sep? If yes, it is a bad file. It is not this function's responsibility to fix it so we throw an exception.
+    if (nosep) {
+        throw std::runtime_error("No sep found.");
+    }
+
     return finalMap;
 }
-
-
-/**
- * 
- */
 
 
 /**
  * Creates a point cloud from the data points
  */
 pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloudFromData(const std::unordered_map<std::string, std::vector<std::vector<std::string>>> groups) {
-    
     
     //These are references to the xyz headers in the original file.
     const std::string xCoordSep = "Calibrated xVector";
@@ -143,6 +149,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloudFromData(const std::unordered_map<
     
 }
 
+
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudRGBFromData(const std::unordered_map<std::string, std::vector<std::vector<std::string>>> groups, cv::Mat texture) {
     
     //These are references to the xyz headers in the original file.
@@ -151,7 +158,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudRGBFromData(const std::unordere
     const std::string zCoordSep = "Calibrated Distance";
 
     //Are there an equal amount of xyz points? Every valid point must have a xyz value.
-    //x implies z via y so an explicit check is unecessary.
+    //x implies z via y so an explicit check for equality with z and the others is unecessary.
     if (groups.at(xCoordSep).size() != groups.at(yCoordSep).size() &&
         groups.at(yCoordSep).size() != groups.at(zCoordSep).size() &&
         groups.at(xCoordSep).at(0).size() != groups.at(yCoordSep).at(0).size() &&
@@ -186,7 +193,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudRGBFromData(const std::unordere
     return cloud;
 }
 
-pcl::visualization::PCLVisualizer::Ptr simpleVis (pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud) {
+
+pcl::visualization::PCLVisualizer::Ptr visualizePointCloud (pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud) {
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer("3D Viewer"));
     viewer->setBackgroundColor (0, 0, 0);
     viewer->addPointCloud<pcl::PointXYZ> (cloud, "sample cloud");
@@ -196,10 +204,11 @@ pcl::visualization::PCLVisualizer::Ptr simpleVis (pcl::PointCloud<pcl::PointXYZ>
     return (viewer);
 }
 
-pcl::visualization::PCLVisualizer::Ptr rgbVis (pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr cloud)
+
+pcl::visualization::PCLVisualizer::Ptr visualizePointCloud (pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr cloud)
 {
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
-    viewer->setBackgroundColor (0, 0.2, 0);
+    viewer->setBackgroundColor (0, 0, 0);
     pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb(cloud);
     viewer->addPointCloud<pcl::PointXYZRGB> (cloud, rgb, "sample cloud");
     viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
@@ -207,6 +216,7 @@ pcl::visualization::PCLVisualizer::Ptr rgbVis (pcl::PointCloud<pcl::PointXYZRGB>
     viewer->initCameraParameters ();
     return (viewer);
 }
+
 
 int countFiles(const std::string path) {
 
@@ -231,6 +241,7 @@ int countFiles(const std::string path) {
     return i;
 }
 
+
 template<typename ... Args>
 std::string string_format( const std::string& format, Args ... args ) {
     int size_s = std::snprintf( nullptr, 0, format.c_str(), args ... ) + 1; // Extra space for '\0'
@@ -241,6 +252,7 @@ std::string string_format( const std::string& format, Args ... args ) {
     return std::string( buf.get(), buf.get() + size - 1 ); // We don't want the '\0' inside
 }
 
+
 cv::Mat createGrayImageFrom2dVector(std::vector<std::vector<std::string>> amplitudes) {
     // cv::Mat result = cv::Mat::zeros(cv::Size(amplitudes.size(), amplitudes.at(0).size()));
     cv::Mat result = cv::Mat(cv::Size(amplitudes.at(0).size(), amplitudes.size()), CV_8UC1);
@@ -249,16 +261,16 @@ cv::Mat createGrayImageFrom2dVector(std::vector<std::vector<std::string>> amplit
     for (i; i < result.cols; i++) {
         for (int j = 0; j < result.rows; j++) {
             cv::Vec3b &intensity = result.at<cv::Vec3b>(j, i);
-            // for(int k = 0; k < result.channels(); k++) {
-                // calculate pixValue
-                int color = std::round(std::stod(amplitudes.at(j).at(i)) / 16382 * 255);
-                result.at<uchar>(j,i) = color;
-            // }
+            //note this variable could be typed uint8_t because all possible values range 0-255. I wont do this because I have no idea if that introduces any problems.
+            int color = std::round(std::stod(amplitudes.at(j).at(i)) / 16382 * 255);
+            result.at<uchar>(j,i) = color;
+            
         }
     }
 
     return result;
 }
+
 
 int main(int argc, char* argv[]) {
 
@@ -285,67 +297,69 @@ int main(int argc, char* argv[]) {
 
 
     // const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_2/day_1/data/scene_1/depth_camera/depth_camera_1.dat";
-    const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_2/day_1/data/scene_1/mask.png";
+    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_5/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
+    const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_5/day_1/calib/scene_1/depth_camera/depth_map_1.png";
     
     const std::string debugbaserecurse = "/home/steven/Desktop/ulcerdatabase/patients";
-    const std::string debugtargetrecurse = "/case_%d/day_%d/calib/scene_1/depth_camera/";
+    const std::string debugtargetrecurse = "/calib/scene_1/depth_camera/";
     
     //"In UNIX everything is a file". Count the number of folders.
-    int casefolders = countFiles(debugbaserecurse);
+    // int casefolders = countFiles(debugbaserecurse);
 
     // std::string debugpcpath = "";
     // std::unordered_map<std::string, std::vector<std::vector<std::string>>> asd = readDatFile(debugpcpath, "% ");
     
+    //Note: accessing the folders this way does not respect alphanumeric order. I think this is fortunately irrelevant for what I am trying to do.
+    // for (const auto & patient : fs::directory_iterator(debugbaserecurse)) {
+    //     for (const auto & day : fs::directory_iterator(patient.path())) {
+    //         std::string currentpath = (std::string)day.path() + debugtargetrecurse;
+    //         std::string pathwithfile = currentpath + "depth_camera_1.dat"; 
+    //         // int depthcameracount = countFiles(currentpath);
 
-    std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata;
-    for (int patient = 1; patient <= casefolders; patient++) {
-        int dayfolders = countFiles(
-            debugbaserecurse + string_format("/case_%d", patient)
-        );
-        for (int day = 1; day <= 1; day++) {
-            std::string currentpath = debugbaserecurse + string_format(debugtargetrecurse, patient, dayfolders);
-
-            int depthcameracount = countFiles(currentpath);
-
-            //I will discard the files that have multiple .dat files.
-            if (depthcameracount == 1) {
-                depthdata = readDatFile(currentpath + "depth_camera_1.dat", "% ");
-                cv::Mat grayimage = createGrayImageFrom2dVector(depthdata.at("Amplitude"));
-                // cv::namedWindow("sldkfjsfd", cv::WINDOW_NORMAL);
-                // cv::resize(grayimage, grayimage, cv::Size(720,880), 0, 0, cv::INTER_NEAREST);
-                cv::imshow("sldkfj", grayimage);
-                cv::waitKey(0);
-            }
-        }
-
-    }
+    //         std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata;
+    //         bool nullness = true;
+    //         try {
+    //             depthdata = readDatFile(pathwithfile, "% ");
+    //             nullness = false;
+    //         }
+    //         //Empty catch may seem dubious but the only time exceptions should only happen when the file is wrong. In that case there is nothing the program can do but move on.
+    //         catch(const std::runtime_error& e) {/*nothing*/}                
+    //         if (!nullness) {
+    //             cv::Mat grayimage = createGrayImageFrom2dVector(depthdata.at("Amplitude"));
+    //             // cv::namedWindow("sldkfjsfd", cv::WINDOW_NORMAL);
+    //             // cv::resize(grayimage, grayimage, cv::Size(720,880), 0, 0, cv::INTER_NEAREST);
+    //             std::cout << pathwithfile << std::endl;
+    //             cv::imshow("cvwindow", grayimage);
+    //             cv::waitKey(0);
+    //             cv::imwrite(currentpath + "depth_map_1.png", grayimage);
+    //         }
+    //     }
+    // }
     
+
     // for (int i = 1; i < 48; i++) {
     //     debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_" + std::to_string(i) + "/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-    //     asd = readDatFile(debugpcpath, "% ");
+        std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata = readDatFile(debugpcpath, "% ");
     //     std::cout << std::to_string(findmin(asd)) + ", " + std::to_string(findmax(asd)) << std::endl;
     // }
     // const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/data/scene_1/mask.png";
 
     //Get the data
-    // std::cout << findmax(asd) << std::endl;
-    // cv::Mat image = cv::imread(debugimgpath, 1);
-    // // cv::Mat im2;
+    cv::Mat image = cv::imread(debugimgpath, 1);
+    // cv::Mat im2;
     // cv::resize(image, image, cv::Size(176, 144), cv::INTER_LINEAR);
-    // cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
+    cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
 
-    // //Create the point cloud
-    // // pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud = pointCloudFromData(asd);
-    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudRGBFromData(depthdata, image);
+    //Create the point cloud
+    // pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud = pointCloudFromData(asd);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudRGBFromData(depthdata, image);
 
-    // //Create the visualiser and render it.
-    // // pcl::visualization::PCLVisualizer::Ptr viewer = simpleVis(pointcloud);
-    // pcl::visualization::PCLVisualizer::Ptr viewer = rgbVis(pointcloud);
-    // while (!viewer->wasStopped()) {
-    //     viewer->spin();
-    //     // std::this_thread::sleep_for(100ms);
-    // }
+    //Create the visualiser and render it.
+    pcl::visualization::PCLVisualizer::Ptr viewer = visualizePointCloud(pointcloud);
+    while (!viewer->wasStopped()) {
+        viewer->spin();
+        // std::this_thread::sleep_for(100ms);
+    }
 
     // cv::namedWindow("sldkfjsfd", cv::WINDOW_NORMAL);
     // cv::imshow("sldkfj", image);
