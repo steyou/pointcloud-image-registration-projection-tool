@@ -193,60 +193,20 @@ pcl::visualization::PCLVisualizer::Ptr simpleVis (pcl::PointCloud<pcl::PointXYZ>
     viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
     viewer->addCoordinateSystem (0.01);
     viewer->initCameraParameters();
-//   return (nullptr);
     return (viewer);
 }
 
 pcl::visualization::PCLVisualizer::Ptr rgbVis (pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr cloud)
 {
-  // --------------------------------------------
-  // -----Open 3D viewer and add point cloud-----
-  // --------------------------------------------
-  pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
-  viewer->setBackgroundColor (0, 0.5, 0);
-  pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb(cloud);
-  viewer->addPointCloud<pcl::PointXYZRGB> (cloud, rgb, "sample cloud");
-  viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
-  viewer->addCoordinateSystem (0.01);
-  viewer->initCameraParameters ();
-  return (viewer);
+    pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
+    viewer->setBackgroundColor (0, 0.2, 0);
+    pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb(cloud);
+    viewer->addPointCloud<pcl::PointXYZRGB> (cloud, rgb, "sample cloud");
+    viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
+    viewer->addCoordinateSystem (0.01);
+    viewer->initCameraParameters ();
+    return (viewer);
 }
-
-// int findmax(std::unordered_map<std::string, std::vector<std::vector<std::string>>> thing) {
-    
-//     const std::string xCoordSep = "Amplitude";
-//     int max = INT_MIN;
-    
-//     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-
-//     for (int y = 0; y < thing.at(xCoordSep).size(); y++) {
-//         for (int x = 0; x < thing.at(xCoordSep).at(0).size(); x++) {
-//             int current = std::stod(thing.at(xCoordSep).at(y).at(x));
-//             if (current > max) {
-//                 max = current;
-//             }
-//         }
-//     }
-//     return max;
-// }
-
-// int findmin(std::unordered_map<std::string, std::vector<std::vector<std::string>>> thing) {
-    
-//     const std::string xCoordSep = "Amplitude";
-//     int min = INT_MAX;
-    
-//     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-
-//     for (int y = 0; y < thing.at(xCoordSep).size(); y++) {
-//         for (int x = 0; x < thing.at(xCoordSep).at(0).size(); x++) {
-//             int current = std::stod(thing.at(xCoordSep).at(y).at(x));
-//             if (current < min) {
-//                 min = current;
-//             }
-//         }
-//     }
-//     return min;
-// }
 
 int countFiles(const std::string path) {
 
@@ -283,15 +243,17 @@ std::string string_format( const std::string& format, Args ... args ) {
 
 cv::Mat createGrayImageFrom2dVector(std::vector<std::vector<std::string>> amplitudes) {
     // cv::Mat result = cv::Mat::zeros(cv::Size(amplitudes.size(), amplitudes.at(0).size()));
-    cv::Mat result = cv::Mat(cv::Size(amplitudes.size(), amplitudes.at(0).size()), CV_8UC1);
+    cv::Mat result = cv::Mat(cv::Size(amplitudes.at(0).size(), amplitudes.size()), CV_8UC1);
     uchar pixValue;
-    for (int i = 0; i < result.cols; i++) {
+    int i = 0;
+    for (i; i < result.cols; i++) {
         for (int j = 0; j < result.rows; j++) {
-            cv::Vec3b &intensity = result.at<cv::Vec3b>(i, j);
-            for(int k = 0; k < result.channels(); k++) {
+            cv::Vec3b &intensity = result.at<cv::Vec3b>(j, i);
+            // for(int k = 0; k < result.channels(); k++) {
                 // calculate pixValue
-                intensity.val[k] = std::stoi(amplitudes.at(i).at(j)) / 16382 * 255;
-            }
+                int color = std::round(std::stod(amplitudes.at(j).at(i)) / 16382 * 255);
+                result.at<uchar>(j,i) = color;
+            // }
         }
     }
 
@@ -341,7 +303,7 @@ int main(int argc, char* argv[]) {
         int dayfolders = countFiles(
             debugbaserecurse + string_format("/case_%d", patient)
         );
-        for (int day = 1; day <= dayfolders; day++) {
+        for (int day = 1; day <= 1; day++) {
             std::string currentpath = debugbaserecurse + string_format(debugtargetrecurse, patient, dayfolders);
 
             int depthcameracount = countFiles(currentpath);
@@ -350,7 +312,8 @@ int main(int argc, char* argv[]) {
             if (depthcameracount == 1) {
                 depthdata = readDatFile(currentpath + "depth_camera_1.dat", "% ");
                 cv::Mat grayimage = createGrayImageFrom2dVector(depthdata.at("Amplitude"));
-                cv::namedWindow("sldkfjsfd", cv::WINDOW_NORMAL);
+                // cv::namedWindow("sldkfjsfd", cv::WINDOW_NORMAL);
+                // cv::resize(grayimage, grayimage, cv::Size(720,880), 0, 0, cv::INTER_NEAREST);
                 cv::imshow("sldkfj", grayimage);
                 cv::waitKey(0);
             }
@@ -367,22 +330,22 @@ int main(int argc, char* argv[]) {
 
     //Get the data
     // std::cout << findmax(asd) << std::endl;
-    cv::Mat image = cv::imread(debugimgpath, 1);
-    // cv::Mat im2;
-    cv::resize(image, image, cv::Size(176, 144), cv::INTER_LINEAR);
-    cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
+    // cv::Mat image = cv::imread(debugimgpath, 1);
+    // // cv::Mat im2;
+    // cv::resize(image, image, cv::Size(176, 144), cv::INTER_LINEAR);
+    // cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
 
-    //Create the point cloud
-    // pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud = pointCloudFromData(asd);
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudRGBFromData(depthdata, image);
+    // //Create the point cloud
+    // // pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud = pointCloudFromData(asd);
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudRGBFromData(depthdata, image);
 
-    //Create the visualiser and render it.
-    // pcl::visualization::PCLVisualizer::Ptr viewer = simpleVis(pointcloud);
-    pcl::visualization::PCLVisualizer::Ptr viewer = rgbVis(pointcloud);
-    while (!viewer->wasStopped()) {
-        viewer->spin();
-        // std::this_thread::sleep_for(100ms);
-    }
+    // //Create the visualiser and render it.
+    // // pcl::visualization::PCLVisualizer::Ptr viewer = simpleVis(pointcloud);
+    // pcl::visualization::PCLVisualizer::Ptr viewer = rgbVis(pointcloud);
+    // while (!viewer->wasStopped()) {
+    //     viewer->spin();
+    //     // std::this_thread::sleep_for(100ms);
+    // }
 
     // cv::namedWindow("sldkfjsfd", cv::WINDOW_NORMAL);
     // cv::imshow("sldkfj", image);
