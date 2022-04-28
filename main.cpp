@@ -136,9 +136,6 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloudFromData(const std::unordered_map<
             point.x = std::stod(groups.at(xCoordSep).at(y).at(x));
             point.y = std::stod(groups.at(yCoordSep).at(y).at(x));
             point.z = std::stod(groups.at(zCoordSep).at(y).at(x));
-            // point.y = 
-            // point.z = 
-            cloud->points.push_back(point);
         }
     }
 
@@ -150,7 +147,7 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloudFromData(const std::unordered_map<
 }
 
 
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudRGBFromData(const std::unordered_map<std::string, std::vector<std::vector<std::string>>> groups, cv::Mat texture) {
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudFromData(const std::unordered_map<std::string, std::vector<std::vector<std::string>>> groups, cv::Mat texture) {
     
     //These are references to the xyz headers in the original file.
     const std::string xCoordSep = "Calibrated xVector";
@@ -218,41 +215,6 @@ pcl::visualization::PCLVisualizer::Ptr visualizePointCloud (pcl::PointCloud<pcl:
 }
 
 
-int countFiles(const std::string path) {
-
-    DIR *dp;
-    int i = 0;
-    struct dirent *ep;
-    const char * p = path.c_str();
-    dp = opendir(p);
-
-    if (dp != NULL) {
-        while (ep = readdir (dp)) {
-            i++;
-        }
-        (void)closedir (dp);
-    }
-
-    //temporary fix for UNIX
-    if (i > 2) {
-        i -= 2;
-    }
-
-    return i;
-}
-
-
-template<typename ... Args>
-std::string string_format( const std::string& format, Args ... args ) {
-    int size_s = std::snprintf( nullptr, 0, format.c_str(), args ... ) + 1; // Extra space for '\0'
-    if( size_s <= 0 ){ throw std::runtime_error( "Error during formatting." ); }
-    auto size = static_cast<size_t>( size_s );
-    std::unique_ptr<char[]> buf( new char[ size ] );
-    std::snprintf( buf.get(), size, format.c_str(), args ... );
-    return std::string( buf.get(), buf.get() + size - 1 ); // We don't want the '\0' inside
-}
-
-
 cv::Mat createGrayImageFrom2dVector(std::vector<std::vector<std::string>> amplitudes) {
     // cv::Mat result = cv::Mat::zeros(cv::Size(amplitudes.size(), amplitudes.at(0).size()));
     cv::Mat result = cv::Mat(cv::Size(amplitudes.at(0).size(), amplitudes.size()), CV_8UC1);
@@ -297,8 +259,8 @@ int main(int argc, char* argv[]) {
 
 
     // const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_5/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-    const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_5/day_1/calib/scene_1/depth_camera/depth_map_1.png";
+    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
+    const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_map_1.png";
     
     const std::string debugbaserecurse = "/home/steven/Desktop/ulcerdatabase/patients";
     const std::string debugtargetrecurse = "/calib/scene_1/depth_camera/";
@@ -336,34 +298,59 @@ int main(int argc, char* argv[]) {
     //     }
     // }
     
-
-    // for (int i = 1; i < 48; i++) {
-    //     debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_" + std::to_string(i) + "/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-        std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata = readDatFile(debugpcpath, "% ");
-    //     std::cout << std::to_string(findmin(asd)) + ", " + std::to_string(findmax(asd)) << std::endl;
-    // }
-    // const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/data/scene_1/mask.png";
+    // std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata = readDatFile(debugpcpath, "% ");
 
     //Get the data
     cv::Mat image = cv::imread(debugimgpath, 1);
+
     // cv::Mat im2;
     // cv::resize(image, image, cv::Size(176, 144), cv::INTER_LINEAR);
-    cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
+    cv::cvtColor(image, image, cv::COLOR_BGR2GRAY);
+    // cv::resize(image, image, cv::Size(720, 880), 0, 0, cv::INTER_NEAREST);
+
+
+
+    cv::Mat corners;
+    // cv::cvtColor(corners, corners, cv::COLOR_BGR2GRAY);
+    cv::cornerHarris(image, corners, 13, 21, 0.01);
+    // cv::dilate(corners, corners, cv::Mat(), cv::Point(-1, -1), 2, 1, 1);
+    // cv::findChessboardCorners(image, cv::Size(8, 7), corners);
+    // cv::Mat cornersview;
+    // cv::cvtColor(image, cornersview, cv::COLOR_GRAY2BGR);
+    // double min, max;
+    // cv::minMaxLoc(image, &min, &max);
+    // double threshold = 0.1*max;
+    // corners.at
+
+
+
+    cv::Mat dst_norm, dst_norm_scaled;
+    cv::normalize( corners, dst_norm, 0, 255, cv::NORM_MINMAX, CV_8UC1, cv::Mat() );
+    cv::convertScaleAbs( dst_norm, dst_norm_scaled );
+    // cv::resize(dst_norm_scaled, dst_norm_scaled, cv::Size(dst_norm_scaled.cols/4, dst_norm_scaled.rows/4), 0, 0, cv::INTER_NEAREST);
+
+    // for( int i = 0; i < dst_norm.rows ; i++ ) {
+    //     for( int j = 0; j < dst_norm.cols; j++ ) {
+    //         if( (int) dst_norm.at<float>(i,j) > 200 ) {
+    //             cv::circle( dst_norm_scaled, cv::Point(j,i), 5,  cv::Scalar(0, 0, 255));
+    //         }
+    //     }
+    // }
+
 
     //Create the point cloud
-    // pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud = pointCloudFromData(asd);
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudRGBFromData(depthdata, image);
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudFromData(depthdata, image);
 
     //Create the visualiser and render it.
-    pcl::visualization::PCLVisualizer::Ptr viewer = visualizePointCloud(pointcloud);
-    while (!viewer->wasStopped()) {
-        viewer->spin();
+    // pcl::visualization::PCLVisualizer::Ptr viewer = visualizePointCloud(pointcloud);
+    // while (!viewer->wasStopped()) {
+        // viewer->spin();
         // std::this_thread::sleep_for(100ms);
-    }
+    // }
 
-    // cv::namedWindow("sldkfjsfd", cv::WINDOW_NORMAL);
     // cv::imshow("sldkfj", image);
-    // cv::waitKey(0);
+    cv::imshow("sldkfj", dst_norm_scaled);
+    cv::waitKey(0);
 
     return 1;
 }
