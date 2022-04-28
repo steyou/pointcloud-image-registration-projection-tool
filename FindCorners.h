@@ -23,13 +23,13 @@ public:
 	void detectCorners(Mat &Src, vector<Point> &resultCornors,float scoreThreshold);
 
 private:
-	//正态分布
+	//normal distribution
 	float normpdf(float dist, float mu, float sigma);
-	//获取最小值
+	//get the minimum value
 	void getMin(Mat src1, Mat src2, Mat &dst);
-	//获取最大值
+	//get the maximum value
 	void getMax(Mat src1, Mat src2, Mat &dst);
-	//获取梯度角度和权重
+	//Get gradient angles and weights
 	void getImageAngleAndWeight(Mat img, Mat &imgDu, Mat &imgDv, Mat &imgAngle, Mat &imgWeight);
 	//estimate edge orientations
 	void edgeOrientations(Mat imgAngle, Mat imgWeight,int index);
@@ -39,11 +39,11 @@ private:
 	void scoreCorners(Mat img, Mat imgAngle, Mat imgWeight, vector<Point> &cornors, vector<int> radius, vector<float> &score);
 	//compute corner statistics
 	void cornerCorrelationScore(Mat img, Mat imgWeight, vector<Point2f> cornersEdge, float &score);
-	//亚像素精度找角点
+	//Find corners with sub-pixel accuracy
 	void refineCorners(vector<Point> &cornors, Mat imgDu, Mat imgDv, Mat imgAngle, Mat imgWeight, float radius);
-	//生成核
+	//Generate kernel
 	void createkernel(float angle1, float angle2, int kernelSize, Mat &kernelA, Mat &kernelB, Mat &kernelC, Mat &kernelD);
-	//非极大值抑制
+	//non-maximum suppression
 	void nonMaximumSuppression(Mat& inputCorners, vector<Point>& outputCorners, float threshold, int margin, int patchSize);
 
 private:

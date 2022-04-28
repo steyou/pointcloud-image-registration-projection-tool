@@ -19,15 +19,15 @@ FindCorners::FindCorners(Mat img)
 	templateProps.push_back(Point2f((float)CV_PI / 4, (float)-CV_PI / 4));
 }
 
-//正态分布
+//normal distribution
 float FindCorners::normpdf(float dist, float mu, float sigma){
 	return exp(-0.5*(dist - mu)*(dist - mu) / (sigma*sigma)) / (std::sqrt(2 * CV_PI)*sigma);
 }
 
-//**************************生成核*****************************//
-//angle代表核类型：45度核和90度核
-//kernelSize代表核大小（最终生成的核的大小为kernelSize*2+1）
-//kernelA...kernelD是生成的核
+//**************************create kernel*****************************//
+//angle represents the type of kernel: 45 degree kernel and 90 degree kernel
+//kernelSize represents the kernel size (the size of the final generated kernel is kernelSize*2+1)
+//kernelA...kernelD is the generated kernel
 //*************************************************************************//
 void FindCorners::createkernel(float angle1, float angle2, int kernelSize, Mat &kernelA, Mat &kernelB, Mat &kernelC, Mat &kernelD){
 
@@ -40,9 +40,9 @@ void FindCorners::createkernel(float angle1, float angle2, int kernelSize, Mat &
 
 	for (int u = 0; u<width; ++u){
 		for (int v = 0; v<height; ++v){
-			float vec[] = { u - kernelSize, v - kernelSize };//相当于将坐标原点移动到核中心
-			float dis = std::sqrt(vec[0] * vec[0] + vec[1] * vec[1]);//相当于计算到中心的距离
-			float side1 = vec[0] * (-sin(angle1)) + vec[1] * cos(angle1);//相当于将坐标原点移动后的核进行旋转，以此产生四种核
+			float vec[] = { u - kernelSize, v - kernelSize };//Equivalent to moving the coordinate origin to the core center
+			float dis = std::sqrt(vec[0] * vec[0] + vec[1] * vec[1]);//Equivalent to calculating the distance to the center
+			float side1 = vec[0] * (-sin(angle1)) + vec[1] * cos(angle1);//It is equivalent to rotating the core after moving the coordinate origin to generate four types of kernels
 			float side2 = vec[0] * (-sin(angle2)) + vec[1] * cos(angle2);//X=X0*cos+Y0*sin;Y=Y0*cos-X0*sin
 			if (side1 <= -0.1&&side2 <= -0.1){
 				kernelA.ptr<float>(v)[u] = normpdf(dis, 0, kernelSize / 2);
@@ -60,17 +60,17 @@ void FindCorners::createkernel(float angle1, float angle2, int kernelSize, Mat &
 	}
 	//std::cout << "kernelA:" << kernelA << endl << "kernelB:" << kernelB << endl
 	//	<< "kernelC:" << kernelC<< endl << "kernelD:" << kernelD << endl;
-	//归一化
+	//Normalized
 	kernelA = kernelA / cv::sum(kernelA)[0];
 	kernelB = kernelB / cv::sum(kernelB)[0];
 	kernelC = kernelC / cv::sum(kernelC)[0];
 	kernelD = kernelD / cv::sum(kernelD)[0];
 
 }
-//**************************//获取最小值*****************************//
+//**************************get the minimum value*****************************//
 //*************************************************************************//
 void FindCorners::getMin(Mat src1, Mat src2, Mat &dst){
-	//src1和src2的大小要一样
+	//The size of src1 and src2 should be the same
 	//if (src1.size() != src2.size())
 	//{
 	//	cout << "The size of matrix don't match" << endl;
@@ -107,10 +107,10 @@ void FindCorners::getMin(Mat src1, Mat src2, Mat &dst){
 		}
 	}
 }
-//**************************//获取最大值*****************************//
+//**************************get the maximum value*****************************//
 //*************************************************************************//
 void FindCorners::getMax(Mat src1, Mat src2, Mat &dst){
-	//src1和src2的大小要一样
+	//The size of src1 and src2 should be the same
 	//if (src1.size() != src2.size())
 	//{
 	//	cout << "The size of matrix don't match" << endl;
@@ -126,7 +126,7 @@ void FindCorners::getMax(Mat src1, Mat src2, Mat &dst){
 	//		dataResult[j] = (dataLeft[j] >= dataRight[j]) ? dataLeft[j] : dataRight[j];
 	//	}
 	//}
-	//(没搞明白，只是换了种写法就不行了，就只能进行一次最大值的获取了。。)
+	//(I don't understand, just change the way of writing and it won't work, you can only get the maximum value once..)
 	int rowsLeft = src1.rows;
 	int colsLeft = src1.cols;
 	int rowsRight = src2.rows;
@@ -151,11 +151,11 @@ void FindCorners::getMax(Mat src1, Mat src2, Mat &dst){
 		}
 	}
 }
-//获取梯度角度和权重
+//Get gradient angles and weights
 void FindCorners::getImageAngleAndWeight(Mat img, Mat &imgDu, Mat &imgDv, Mat &imgAngle, Mat &imgWeight){
 	Mat sobelKernel(3, 3, CV_32F);
 	Mat sobelKernelTrs(3, 3, CV_32F);
-	//soble滤波器算子核
+	//soble filter operator kernel
 	sobelKernel.col(0).setTo(cv::Scalar(-1));
 	sobelKernel.col(1).setTo(cv::Scalar(0));
 	sobelKernel.col(2).setTo(cv::Scalar(1));
@@ -185,10 +185,10 @@ void FindCorners::getImageAngleAndWeight(Mat img, Mat &imgDu, Mat &imgDv, Mat &i
 		}
 	}
 }
-//**************************非极大值抑制*****************************//
-//inputCorners是输入角点，outputCorners是非极大值抑制后的角点
-//threshold是设定的阈值
-//margin是进行非极大值抑制时检查方块与输入矩阵边界的距离，patchSize是该方块的大小
+//**************************non-maximum suppression*****************************//
+//inputCorners is the input corner, outputCorners is the corner after non-maximum suppression
+//threshold is the set threshold
+//margin is the distance between the check box and the boundary of the input matrix when performing non-maximum suppression, and patchSize is the size of the box
 //*************************************************************************//
 void FindCorners::nonMaximumSuppression(Mat& inputCorners, vector<Point>& outputCorners, float threshold, int margin, int patchSize)
 {
@@ -196,13 +196,13 @@ void FindCorners::nonMaximumSuppression(Mat& inputCorners, vector<Point>& output
 	{
 		cout << "The imput mat is empty!" << endl; return;
 	}
-	for (int i = margin + patchSize; i < inputCorners.cols - (margin + patchSize); i = i + patchSize + 1)//移动检查方块，每次移动一个方块的大小
+	for (int i = margin + patchSize; i < inputCorners.cols - (margin + patchSize); i = i + patchSize + 1)//Move the check block, one block at a time
 	{
 		for (int j = margin + patchSize; j < inputCorners.rows - (margin + patchSize); j = j + patchSize + 1)
 		{
 			float maxVal = inputCorners.ptr<float>(j)[i];
 			int maxX = i; int maxY = j;
-			for (int m = i; m < i + patchSize +1; m++)//找出该检查方块中的局部最大值
+			for (int m = i; m < i + patchSize +1; m++)//Find the local maximum in this check box
 			{
 				for (int n = j; n < j + patchSize +1; n++)
 				{
@@ -213,7 +213,7 @@ void FindCorners::nonMaximumSuppression(Mat& inputCorners, vector<Point>& output
 					}
 				}
 			}
-			if (maxVal < threshold)continue;//若该局部最大值小于阈值则不满足要求
+			if (maxVal < threshold) continue;//If the local maximum value is less than the threshold, the requirement is not met
 			int flag = 0;
 			for (int m = maxX - patchSize; m < min(maxX + patchSize, inputCorners.cols-margin); m++)//二次检查
 			{
@@ -347,7 +347,7 @@ void FindCorners::edgeOrientations(Mat imgAngle, Mat imgWeight, int index){
 	cornersEdge2[index][0] = cos(most2Angle);
 	cornersEdge2[index][1] = sin(most2Angle);
 }
-//亚像素精度找角点
+//Find corners with sub-pixel accuracy
 void FindCorners::refineCorners(vector<Point> &cornors, Mat imgDu, Mat imgDv, Mat imgAngle, Mat imgWeight, float radius){
 	// image dimensions
 	int width = imgDu.cols;
@@ -371,7 +371,7 @@ void FindCorners::refineCorners(vector<Point> &cornors, Mat imgDu, Mat imgDv, Ma
 		edgeOrientations(roiAngle, roiWeight,i);
 
 		// continue, if invalid edge orientations
-		if (cornersEdge1[i][0] == 0 && cornersEdge1[i][1] == 0 || cornersEdge2[i][0] == 0 && cornersEdge2[i][1] == 0)continue;
+		if (cornersEdge1[i][0] == 0 && cornersEdge1[i][1] == 0 || cornersEdge2[i][0] == 0 && cornersEdge2[i][1] == 0) continue;
 	}
 }
 //compute corner statistics
@@ -502,18 +502,18 @@ void FindCorners::detectCorners(Mat &Src, vector<Point> &resultCornors, float sc
 	gray = Mat(Src.size(), CV_8U);
 	if (Src.channels()==3)
 	{
-		cvtColor(Src, gray, COLOR_BGR2GRAY);//变为灰度图
+		cvtColor(Src, gray, COLOR_BGR2GRAY);
 	}
 	else gray = Src.clone();
 	
-	normalize(gray, imageNorm, 0, 1, cv::NORM_MINMAX, CV_32F);//对灰度图进行归一化
+	normalize(gray, imageNorm, 0, 1, cv::NORM_MINMAX, CV_32F);
 
-	Mat imgCorners = Mat::zeros(imageNorm.size(), CV_32F);//卷积核得出的点
+	Mat imgCorners = Mat::zeros(imageNorm.size(), CV_32F);//The points obtained by the convolution kernel
 	for (int i = 0; i < 6; i++)
 	{
-		//按照论文步骤，第一步：用卷积核进行卷积的方式找出可能是棋盘格角点的点
+		//Follow the steps of the paper, the first step: use the convolution kernel to convolve to find the points that may be the corners of the checkerboard
 		Mat kernelA1, kernelB1, kernelC1, kernelD1;
-		createkernel(templateProps[i].x, templateProps[i].y, radius[i / 2], kernelA1, kernelB1, kernelC1, kernelD1);//1.1 产生四种核
+		createkernel(templateProps[i].x, templateProps[i].y, radius[i / 2], kernelA1, kernelB1, kernelC1, kernelD1);//1.1 Generate four kinds of kernels
 		std::cout << "kernelA:" << kernelA1 << endl << "kernelB:" << kernelB1 << endl
 			<< "kernelC:" << kernelC1 << endl << "kernelD:" << kernelD1 << endl;
 
@@ -521,13 +521,13 @@ void FindCorners::detectCorners(Mat &Src, vector<Point> &resultCornors, float sc
 		Mat imgCornerB1(imageNorm.size(), CV_32F);
 		Mat imgCornerC1(imageNorm.size(), CV_32F);
 		Mat imgCornerD1(imageNorm.size(), CV_32F);
-		filter2D(imageNorm, imgCornerA1, CV_32F, kernelA1);//1.2 用所产生的核对图像做卷积
+		filter2D(imageNorm, imgCornerA1, CV_32F, kernelA1);//1.2 Convolution with the generated check image
 		filter2D(imageNorm, imgCornerB1, CV_32F, kernelB1);
 		filter2D(imageNorm, imgCornerC1, CV_32F, kernelC1);
 		filter2D(imageNorm, imgCornerD1, CV_32F, kernelD1);
 
 		Mat imgCornerMean(imageNorm.size(), CV_32F);
-		imgCornerMean = (imgCornerA1 + imgCornerB1 + imgCornerC1 + imgCornerD1) / 4;//1.3 按照公式进行计算
+		imgCornerMean = (imgCornerA1 + imgCornerB1 + imgCornerC1 + imgCornerD1) / 4;//1.3 Calculate according to the formula
 		Mat imgCornerA(imageNorm.size(), CV_32F);
 		Mat imgCornerB(imageNorm.size(), CV_32F);
 		Mat imgCorner1(imageNorm.size(), CV_32F);
@@ -547,14 +547,14 @@ void FindCorners::detectCorners(Mat &Src, vector<Point> &resultCornors, float sc
 		//getMin(imgCornerA1, imgCornerB1, imgCornerA); getMin(imgCornerC1, imgCornerD1, imgCornerB);
 		//getMin(imgCornerA - imgCornerMean, imgCornerMean - imgCornerB, imgCorner1);
 		//getMin(imgCornerMean - imgCornerA, imgCornerB - imgCornerMean, imgCorner2);
-		//getMax(imgCorners, imgCorner2, imgCorners);//1.4 获取每个像素点的得分
-		//getMax(imgCorners, imgCorner1, imgCorners);//1.4 获取每个像素点的得分
+		//getMax(imgCorners, imgCorner2, imgCorners);//1.4 Get the score of each pixel
+		//getMax(imgCorners, imgCorner1, imgCorners);//1.4 Get the score of each pixel
 	}
 
-	namedWindow("ROI");//创建窗口，显示原始图像
+	namedWindow("ROI");
 	imshow("ROI", imgCorners); waitKey(0);
 
-	nonMaximumSuppression(imgCorners, cornerPoints, 0.01, 5, 3);//1.5 非极大值抑制算法进行过滤，获取棋盘格角点初步结果
+	nonMaximumSuppression(imgCorners, cornerPoints, 0.01, 5, 3);//1.5 Filter by the non-maximum suppression algorithm to obtain the preliminary results of the corner points of the checkerboard
 
 	if (cornerPoints.size()>0)
 	{
@@ -563,15 +563,15 @@ void FindCorners::detectCorners(Mat &Src, vector<Point> &resultCornors, float sc
 			circle(Src, cornerPoints[i], 5, CV_RGB(255, 0, 0), 2);
 		}
 	}
-	namedWindow("src");//创建窗口，显示原始图像
+	namedWindow("src");
 	imshow("src", Src); waitKey(0);
 
-	//算两个方向的梯度
+	//Calculate the gradient in two directions
 	Mat imageDu(gray.size(), CV_32F);
 	Mat imageDv(gray.size(), CV_32F);
 	Mat img_angle(gray.size(), CV_32F);
 	Mat img_weight(gray.size(), CV_32F);
-	//获取梯度角度和权重
+	//Get gradient angles and weights
 	getImageAngleAndWeight(gray, imageDu, imageDv, img_angle, img_weight);
 	//subpixel refinement
 	refineCorners(cornerPoints, imageDu, imageDv, img_angle, img_weight, 10);
@@ -603,10 +603,10 @@ void FindCorners::detectCorners(Mat &Src, vector<Point> &resultCornors, float sc
 			
 		}
 	}
-	namedWindow("src");//创建窗口，显示原始图像
+	namedWindow("src");
 	imshow("src", Src); waitKey(0);
 
 	Point maxLoc;
-	FileStorage fs2("test.xml", FileStorage::WRITE);//写XML文件
+	FileStorage fs2("test.xml", FileStorage::WRITE);//write XML file
 	fs2 << "img_corners_a1" << cornerPoints;
 }

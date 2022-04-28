@@ -369,28 +369,28 @@ int main(int argc, char* argv[]) {
 
 }
 
-// int _tmain() {
-// 	//Mat kernels;
-// 	//FileStorage fs2("templateA1.xml", FileStorage::READ);//读XML文件
-// 	//fs2["templateA1"] >> kernels;
-// 	//cout << "kernels: " << kernels << endl;
+int _tmain() {
+	//Mat kernels;
+	//FileStorage fs2("templateA1.xml", FileStorage::READ);//Read XML file
+	//fs2["templateA1"] >> kernels;
+	//cout << "kernels: " << kernels << endl;
 
-// 	//读入原始图像
-// 	Mat src; //输入图像
-// 	cout << "This is a demo for Parking slot detection." << endl;
-// 	cout << "开始读入图像..." << endl;
-// 	string filename = "Img\\02.png";//图像路径位置 "Img\\birdView0015.png"   calib\\_70.png
-// 	src = imread(filename, -1);//载入测试图像
-// 	if (src.empty())//不能读取图像
-// 	{
-// 		printf("Cannot read image file: %s\n", filename.c_str());
-// 		return -1;
-// 	}
-// 	namedWindow("SrcImg");//创建窗口，显示原始图像
-// 	imshow("SrcImg", src);
+	//read in raw image
+	cv::Mat src; //input image
+	std::cout << "This is a demo for Parking slot detection." << endl;
+	std::cout << "start reading in images..." << endl;
+	string filename = "Img\\02.png";//image path location "Img\\birdView0015.png"   calib\\_70.png
+	src = cv::imread(filename, -1);
+	if (src.empty())
+	{
+		printf("Cannot read image file: %s\n", filename.c_str());
+		return -1;
+	}
+	cv::namedWindow("SrcImg");
+	cv::imshow("SrcImg", src);
 
-// 	vector<Point> corners;//存储找到的角点
-// 	FindCorners corner_detector(src);
-// 	corner_detector.detectCorners(src, corners,0.025);
-// 	return 0;
-// }
+	std::vector<Point> corners;//Store found corners
+	FindCorners corner_detector(src);
+	corner_detector.detectCorners(src, corners,0.025);
+	return 0;
+}
