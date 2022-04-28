@@ -1,0 +1,9 @@
+@software{Young_PCIPT_2022,
+  author = {Young, Steven},
+  # doi = {10.5281/zenodo.1234},
+  month = {10},
+  title = {{Point Cloud Image Projection Tool}},
+  url = {https://github.com/syoung114/projectimageonpointcloud},
+  version = {1.0.0},
+  year = {2022}
+}
