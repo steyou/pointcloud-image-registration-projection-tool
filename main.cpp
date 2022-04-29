@@ -20,8 +20,15 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
+#include "opencv2/opencv.hpp"
+#include <algorithm>
+#include "CornerDetAC.h"
+#include "ChessboradStruct.h"
+#include <stdio.h>
+#include <time.h>
 
-namespace fs = std::filesystem;
+// namespace fs = std::filesystem;
+std::vector<cv::Point2i> points;
 
 template <typename Out>
 void split(const std::string &s, char delim, Out result) {
@@ -236,6 +243,13 @@ cv::Mat createGrayImageFrom2dVector(std::vector<std::vector<std::string>> amplit
 
 int main(int argc, char* argv[]) {
 
+    // const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
+    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
+    const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/photo.jpg";
+    
+    const std::string debugbaserecurse = "/home/steven/Desktop/ulcerdatabase/patients";
+    const std::string debugtargetrecurse = "/calib/scene_1/depth_camera/";
+
     //Handle command line arguments
     // if (argc < 2) {
     //     std::cout << "this the help text" << std::endl;
@@ -258,12 +272,7 @@ int main(int argc, char* argv[]) {
     // std::vector<std::string> rawpcdata = readFile(argv[1]);
 
 
-    // const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-    const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_map_1.png";
     
-    const std::string debugbaserecurse = "/home/steven/Desktop/ulcerdatabase/patients";
-    const std::string debugtargetrecurse = "/calib/scene_1/depth_camera/";
     
     //"In UNIX everything is a file". Count the number of folders.
     // int casefolders = countFiles(debugbaserecurse);
@@ -310,9 +319,9 @@ int main(int argc, char* argv[]) {
 
 
 
-    cv::Mat corners;
+    // cv::Mat corners;
     // cv::cvtColor(corners, corners, cv::COLOR_BGR2GRAY);
-    cv::cornerHarris(image, corners, 13, 21, 0.01);
+    // cv::cornerHarris(image, corners, 13, 21, 0.01);
     // cv::dilate(corners, corners, cv::Mat(), cv::Point(-1, -1), 2, 1, 1);
     // cv::findChessboardCorners(image, cv::Size(8, 7), corners);
     // cv::Mat cornersview;
@@ -324,9 +333,9 @@ int main(int argc, char* argv[]) {
 
 
 
-    cv::Mat dst_norm, dst_norm_scaled;
-    cv::normalize( corners, dst_norm, 0, 255, cv::NORM_MINMAX, CV_8UC1, cv::Mat() );
-    cv::convertScaleAbs( dst_norm, dst_norm_scaled );
+    // cv::Mat dst_norm, dst_norm_scaled;
+    // cv::normalize( corners, dst_norm, 0, 255, cv::NORM_MINMAX, CV_8UC1, cv::Mat() );
+    // cv::convertScaleAbs( dst_norm, dst_norm_scaled );
     // cv::resize(dst_norm_scaled, dst_norm_scaled, cv::Size(dst_norm_scaled.cols/4, dst_norm_scaled.rows/4), 0, 0, cv::INTER_NEAREST);
 
     // for( int i = 0; i < dst_norm.rows ; i++ ) {
@@ -349,9 +358,72 @@ int main(int argc, char* argv[]) {
     // }
 
     // cv::imshow("sldkfj", image);
-    cv::imshow("sldkfj", dst_norm_scaled);
-    cv::waitKey(0);
+    // cv::imshow("sldkfj", dst_norm_scaled);
+    // cv::waitKey(0);
+
+    // cv::Mat src1; 
+    // cv::Mat src;
+    
+    // // std::string simage, stxt, ssave;
+    // // simage = sr ;//+ ".bmp";
+    // // stxt = sr + ".txt";
+    // // ssave = sr + ".png";
+    // // ssave = "./t/"+ssave;
+	// if (src1.channels() == 1)
+	// {
+	// 	src = src1.clone();
+	// }
+	// else
+	// {
+	// 	if (src1.channels() == 3)
+	// 	{
+	// 		cv::cvtColor(src1, src, cv::COLOR_BGR2GRAY);
+	// 	}
+	// 	else
+	// 	{
+	// 		if (src1.channels() == 4)
+	// 		{
+	// 			cv::cvtColor(src1, src, cv::COLOR_BGRA2GRAY);
+	// 		}
+	// 	}
+	// }
+
+	std::vector<cv::Point> corners_p;//Store found corners
+	
+	double t = (double)cv::getTickCount();
+	std::vector<cv::Mat> chessboards;
+	CornerDetAC corner_detector(image);
+	ChessboradStruct chessboardstruct;
+
+	Corners corners_s;
+	corner_detector.detectCorners(image, corners_p, corners_s, 0.01);
+
+	t = ((double)cv::getTickCount() - t) / cv::getTickFrequency();
+	std::cout << "time cost :" << t << std::endl;
+     
+	ImageChessesStruct ics;
+        chessboardstruct.chessboardsFromCorners(corners_s, chessboards, 0.6);
+        chessboardstruct.drawchessboard(image, corners_s, chessboards, "cb", 0);
+
+    
 
     return 1;
+
+}
+
+/*  Copyright 2017 onlyliu(997737609@qq.com).                             */
+/*                                                                        */
+/*  Automatic Camera and Range Sensor Calibration using a single Shot     */
+/*  this project realize the papar: Automatic Camera and Range Sensor     */
+/*  Calibration using a single Shot                                       */
+
+
+
+
+
+
+
+int alskd(int argc, char* argv[]) {
+    return 0;     
 }
 
