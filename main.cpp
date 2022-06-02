@@ -21,7 +21,7 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
 
-namespace fs = std::filesystem;
+// namespace fs = std::filesystem;
 
 template <typename Out>
 void split(const std::string &s, char delim, Out result) {
@@ -173,9 +173,12 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudFromData(const std::unordered_m
             point.x = std::stod(groups.at(xCoordSep).at(y).at(x));
             point.y = std::stod(groups.at(yCoordSep).at(y).at(x));
             point.z = std::stod(groups.at(zCoordSep).at(y).at(x));
-            point.r = texture.at<cv::Vec3b>(y, x)[0];
-            point.g = texture.at<cv::Vec3b>(y, x)[1];
-            point.b = texture.at<cv::Vec3b>(y, x)[2];
+            
+            cv::Vec3b texrgb = texture.at<cv::Vec3b>(cv::Point(x,y));
+            
+            point.r = texrgb[2];
+            point.g = texrgb[1];
+            point.b = texrgb[0];
             // texture.at(x, y);
 
             // point.g = texture.at<uint8_t>(x, y)[1];
@@ -205,7 +208,7 @@ pcl::visualization::PCLVisualizer::Ptr visualizePointCloud (pcl::PointCloud<pcl:
 pcl::visualization::PCLVisualizer::Ptr visualizePointCloud (pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr cloud)
 {
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
-    viewer->setBackgroundColor (0, 0, 0);
+    viewer->setBackgroundColor (0, 0.1, 0);
     pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb(cloud);
     viewer->addPointCloud<pcl::PointXYZRGB> (cloud, rgb, "sample cloud");
     viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
@@ -215,7 +218,7 @@ pcl::visualization::PCLVisualizer::Ptr visualizePointCloud (pcl::PointCloud<pcl:
 }
 
 
-cv::Mat createGrayImageFrom2dVector(std::vector<std::vector<std::string>> amplitudes) {
+cv::Mat createDepthImageFromAmplitudes(std::vector<std::vector<std::string>> amplitudes) {
     // cv::Mat result = cv::Mat::zeros(cv::Size(amplitudes.size(), amplitudes.at(0).size()));
     cv::Mat result = cv::Mat(cv::Size(amplitudes.at(0).size(), amplitudes.size()), CV_8UC1);
     uchar pixValue;
@@ -259,7 +262,7 @@ int main(int argc, char* argv[]) {
 
 
     // const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
+    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_2/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
     const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_map_1.png";
     
     const std::string debugbaserecurse = "/home/steven/Desktop/ulcerdatabase/patients";
@@ -269,7 +272,7 @@ int main(int argc, char* argv[]) {
     // int casefolders = countFiles(debugbaserecurse);
 
     // std::string debugpcpath = "";
-    // std::unordered_map<std::string, std::vector<std::vector<std::string>>> asd = readDatFile(debugpcpath, "% ");
+    std::unordered_map<std::string, std::vector<std::vector<std::string>>> asd = readDatFile(debugpcpath, "% ");
     
     //Note: accessing the folders this way does not respect alphanumeric order. I think this is fortunately irrelevant for what I am trying to do.
     // for (const auto & patient : fs::directory_iterator(debugbaserecurse)) {
@@ -287,13 +290,14 @@ int main(int argc, char* argv[]) {
     //         //Empty catch may seem dubious but the only time exceptions should only happen when the file is wrong. In that case there is nothing the program can do but move on.
     //         catch(const std::runtime_error& e) {/*nothing*/}                
     //         if (!nullness) {
-    //             cv::Mat grayimage = createGrayImageFrom2dVector(depthdata.at("Amplitude"));
+                cv::Mat depthimage = createDepthImageFromAmplitudes(asd.at("Amplitude"));
+                // cv::Mat depthimage = createDepthImageFromAmplitudes(depthdata.at("Amplitude"));
     //             // cv::namedWindow("sldkfjsfd", cv::WINDOW_NORMAL);
-    //             // cv::resize(grayimage, grayimage, cv::Size(720,880), 0, 0, cv::INTER_NEAREST);
+    //             // cv::resize(depthimage, depthimage, cv::Size(720,880), 0, 0, cv::INTER_NEAREST);
     //             std::cout << pathwithfile << std::endl;
-    //             cv::imshow("cvwindow", grayimage);
+    //             cv::imshow("cvwindow", depthimage);
     //             cv::waitKey(0);
-    //             cv::imwrite(currentpath + "depth_map_1.png", grayimage);
+    //             cv::imwrite(currentpath + "depth_map_1.png", depthimage);
     //         }
     //     }
     // }
@@ -301,56 +305,93 @@ int main(int argc, char* argv[]) {
     // std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata = readDatFile(debugpcpath, "% ");
 
     //Get the data
-    cv::Mat image = cv::imread(debugimgpath, 1);
+    // cv::Mat image = cv::imread(debugimgpath, 1);
 
     // cv::Mat im2;
     // cv::resize(image, image, cv::Size(176, 144), cv::INTER_LINEAR);
-    cv::cvtColor(image, image, cv::COLOR_BGR2GRAY);
+    // cv::cvtColor(image, image, cv::COLOR_BGR2GRAY);
     // cv::resize(image, image, cv::Size(720, 880), 0, 0, cv::INTER_NEAREST);
 
 
+    cv::Mat rgbimage = cv::imread("/home/steven/Desktop/ulcerdatabase/patients/case_2/day_1/calib/scene_1/photo.jpg", cv::IMREAD_GRAYSCALE);
+    std::cout << rgbimage.size << std::endl;
+    // cv::cvtColor(rgbimage,rgbimage,cv::COLOR_BGR2GRAY);
+    
+    // cv::resize(depthimage, depthimage, rgbimage.size(), cv::INTER_LINEAR);
+    // cv::resize(rgbimage, rgbimage, cv::Size(1920,1080), cv::INTER_LINEAR);
+    // cv::resize(rgbimage, rgbimage, cv::Size(rgbimage.cols/2,rgbimage.rows/2), cv::INTER_LINEAR);
+    std::cout << rgbimage.size << std::endl;
 
-    cv::Mat corners;
-    // cv::cvtColor(corners, corners, cv::COLOR_BGR2GRAY);
-    cv::cornerHarris(image, corners, 13, 21, 0.01);
-    // cv::dilate(corners, corners, cv::Mat(), cv::Point(-1, -1), 2, 1, 1);
-    // cv::findChessboardCorners(image, cv::Size(8, 7), corners);
-    // cv::Mat cornersview;
-    // cv::cvtColor(image, cornersview, cv::COLOR_GRAY2BGR);
-    // double min, max;
-    // cv::minMaxLoc(image, &min, &max);
-    // double threshold = 0.1*max;
-    // corners.at
+    // cv::rectangle(rgbimage, cv::Point(200,200), cv::Point(800,800), cv::Scalar(255,0,0));
+
+    // //Centre crop the image.
+    // const float cropscalar = 1.0;
+    // cv::Rect r = cv::Rect(
+    //     (float)rgbimage.cols/2.0-(float)depthimage.cols*cropscalar/2.0,
+    //     (float)rgbimage.rows/2.0-(float)depthimage.rows*cropscalar/2.0,
+    //     depthimage.cols*cropscalar,
+    //     depthimage.rows*cropscalar
+    // );
+
+    // std::cout << (float)r.width/(float)r.height << std::endl;
+    // std::cout << (float)depthimage.cols/(float)depthimage.rows << std::endl;
+    
+    // rgbimage = rgbimage(r);
+    // cv::rectangle(rgbimage,r,cv::Scalar(255,0,0),10);
+    // cv::resize(rgbimage, rgbimage, depthimage.size(), cv::INTER_LINEAR);
+
+    // cv::imshow("sldkfj", rgbimage);
+    // cv::waitKey(0);
+
+    // Registration code from https://docs.opencv.org/4.x/d9/dab/tutorial_homography.html
+    std::vector<cv::Point2f> depthcorners, rgbcorners;
+    bool depthfound = cv::findChessboardCorners(depthimage, cv::Size(8, 7), depthcorners);
+    bool rgbfound = cv::findChessboardCorners(rgbimage, cv::Size(8, 7), rgbcorners);
+    
+    if (depthfound && rgbfound) {
+        cv::Mat homography = cv::findHomography(rgbcorners,depthcorners);
+        std::cout << homography << std::endl;
+
+        cv::Mat actualrgb = cv::imread("/home/steven/Desktop/ulcerdatabase/patients/case_2/day_1/data/scene_1/photo.jpg");
+        cv::cvtColor(actualrgb, actualrgb, cv::COLOR_BGR2RGB);
+        
+        cv::Mat warped;
+        cv::warpPerspective(actualrgb, warped, homography, actualrgb.size());
+
+        // cv::imshow("", warped);
+        // cv::waitKey(0);
+
+        //If you imshow the warped image you will see that there are unneeded pixels beyond the borders of the depth camera. These two lines crops the image back to the borders.
+        cv::Rect r2 = cv::Rect(0,0,depthimage.cols,depthimage.rows);
+        warped = warped(r2);
+        
+        // cv::cvtColor(warped,warped,cv::COLOR_GRAY2BGR);
+        cv::cvtColor(warped,warped,cv::COLOR_BGR2RGB);
+        // cv::imwrite("/home/steven/Desktop/alignedimage.jpg",warped);
+        // cv::resize(warped, warped, depthimage.size(), cv::INTER_LINEAR);
+
+        //Create the point cloud
+        const std::string thefootpath = "/home/steven/Desktop/ulcerdatabase/patients/case_2/day_1/data/scene_1/depth_camera/depth_camera_1.dat";
+        std::unordered_map<std::string, std::vector<std::vector<std::string>>> rawDat = readDatFile(thefootpath, "% ");
+
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudFromData(rawDat, warped);
+        // std::cout << pointcloud.get() << endl;
+
+        // Create the visualiser and render it.
+        pcl::visualization::PCLVisualizer::Ptr viewer = visualizePointCloud(pointcloud);
+        while (!viewer->wasStopped()) {
+            viewer->spin();
+        }
+
+    }
+    else {
+        std::cout << "Registration Error." << std::endl;
+        std::cout << "Found depth chessboard: " << depthfound << std::endl;
+        std::cout << "Found rgb chessboard: " << rgbfound << std::endl;
+    }
 
 
-
-    cv::Mat dst_norm, dst_norm_scaled;
-    cv::normalize( corners, dst_norm, 0, 255, cv::NORM_MINMAX, CV_8UC1, cv::Mat() );
-    cv::convertScaleAbs( dst_norm, dst_norm_scaled );
-    // cv::resize(dst_norm_scaled, dst_norm_scaled, cv::Size(dst_norm_scaled.cols/4, dst_norm_scaled.rows/4), 0, 0, cv::INTER_NEAREST);
-
-    // for( int i = 0; i < dst_norm.rows ; i++ ) {
-    //     for( int j = 0; j < dst_norm.cols; j++ ) {
-    //         if( (int) dst_norm.at<float>(i,j) > 200 ) {
-    //             cv::circle( dst_norm_scaled, cv::Point(j,i), 5,  cv::Scalar(0, 0, 255));
-    //         }
-    //     }
-    // }
-
-
-    //Create the point cloud
-    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudFromData(depthdata, image);
-
-    //Create the visualiser and render it.
-    // pcl::visualization::PCLVisualizer::Ptr viewer = visualizePointCloud(pointcloud);
-    // while (!viewer->wasStopped()) {
-        // viewer->spin();
-        // std::this_thread::sleep_for(100ms);
-    // }
-
-    // cv::imshow("sldkfj", image);
-    cv::imshow("sldkfj", dst_norm_scaled);
-    cv::waitKey(0);
+    
 
     return 1;
 }
