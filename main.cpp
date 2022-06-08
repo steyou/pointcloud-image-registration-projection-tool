@@ -21,7 +21,14 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
 
-namespace fs = std::filesystem;
+#include "libcbdetect/boards_from_corners.h"
+#include "libcbdetect/config.h"
+#include "libcbdetect/find_corners.h"
+#include "libcbdetect/plot_boards.h"
+#include "libcbdetect/plot_corners.h"
+
+// namespace fs = std::filesystem;
+namespace chrono = std::chrono;
 
 template <typename Out>
 void split(const std::string &s, char delim, Out result) {
@@ -215,7 +222,7 @@ pcl::visualization::PCLVisualizer::Ptr visualizePointCloud (pcl::PointCloud<pcl:
 }
 
 
-cv::Mat createGrayImageFrom2dVector(std::vector<std::vector<std::string>> amplitudes) {
+cv::Mat createDepthImageFrom2dVector(std::vector<std::vector<std::string>> amplitudes) {
     // cv::Mat result = cv::Mat::zeros(cv::Size(amplitudes.size(), amplitudes.at(0).size()));
     cv::Mat result = cv::Mat(cv::Size(amplitudes.at(0).size(), amplitudes.size()), CV_8UC1);
     uchar pixValue;
@@ -231,6 +238,28 @@ cv::Mat createGrayImageFrom2dVector(std::vector<std::vector<std::string>> amplit
     }
 
     return result;
+}
+
+void detect(const char* str, cbdetect::CornerType corner_type) {
+    cbdetect::Corner corners;
+    std::vector<cbdetect::Board> boards;
+    cbdetect::Params params;
+    params.corner_type = corner_type;
+
+    std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata = readDatFile(str, "% ");
+    cv::Mat img = createDepthImageFrom2dVector(depthdata.at("Amplitude"));
+
+    auto t1 = chrono::high_resolution_clock::now();
+    cbdetect::find_corners(img, corners, params);
+    auto t2 = chrono::high_resolution_clock::now();
+    cbdetect::plot_corners(img, corners);
+    auto t3 = chrono::high_resolution_clock::now();
+    cbdetect::boards_from_corners(img, corners, boards, params);
+    auto t4 = chrono::high_resolution_clock::now();
+    printf("Find corners took: %.3f ms\n", chrono::duration_cast<chrono::microseconds>(t2 - t1).count() / 1000.0);
+    printf("Find boards took: %.3f ms\n", chrono::duration_cast<chrono::microseconds>(t4 - t3).count() / 1000.0);
+    printf("Total took: %.3f ms\n", chrono::duration_cast<chrono::microseconds>(t2 - t1).count() / 1000.0 + chrono::duration_cast<chrono::microseconds>(t4 - t3).count() / 1000.0);
+    cbdetect::plot_boards(img, corners, boards, params);
 }
 
 
@@ -259,7 +288,7 @@ int main(int argc, char* argv[]) {
 
 
     // const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
+    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_18/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
     const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_map_1.png";
     
     const std::string debugbaserecurse = "/home/steven/Desktop/ulcerdatabase/patients";
@@ -269,7 +298,7 @@ int main(int argc, char* argv[]) {
     // int casefolders = countFiles(debugbaserecurse);
 
     // std::string debugpcpath = "";
-    // std::unordered_map<std::string, std::vector<std::vector<std::string>>> asd = readDatFile(debugpcpath, "% ");
+    std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata = readDatFile(debugpcpath, "% ");
     
     //Note: accessing the folders this way does not respect alphanumeric order. I think this is fortunately irrelevant for what I am trying to do.
     // for (const auto & patient : fs::directory_iterator(debugbaserecurse)) {
@@ -287,7 +316,7 @@ int main(int argc, char* argv[]) {
     //         //Empty catch may seem dubious but the only time exceptions should only happen when the file is wrong. In that case there is nothing the program can do but move on.
     //         catch(const std::runtime_error& e) {/*nothing*/}                
     //         if (!nullness) {
-    //             cv::Mat grayimage = createGrayImageFrom2dVector(depthdata.at("Amplitude"));
+                cv::Mat depthimage = createDepthImageFrom2dVector(depthdata.at("Amplitude"));
     //             // cv::namedWindow("sldkfjsfd", cv::WINDOW_NORMAL);
     //             // cv::resize(grayimage, grayimage, cv::Size(720,880), 0, 0, cv::INTER_NEAREST);
     //             std::cout << pathwithfile << std::endl;
@@ -301,42 +330,17 @@ int main(int argc, char* argv[]) {
     // std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata = readDatFile(debugpcpath, "% ");
 
     //Get the data
-    cv::Mat image = cv::imread(debugimgpath, 1);
 
-    // cv::Mat im2;
-    // cv::resize(image, image, cv::Size(176, 144), cv::INTER_LINEAR);
-    cv::cvtColor(image, image, cv::COLOR_BGR2GRAY);
-    // cv::resize(image, image, cv::Size(720, 880), 0, 0, cv::INTER_NEAREST);
-
-
-
-    cv::Mat corners;
-    // cv::cvtColor(corners, corners, cv::COLOR_BGR2GRAY);
-    cv::cornerHarris(image, corners, 13, 21, 0.01);
-    // cv::dilate(corners, corners, cv::Mat(), cv::Point(-1, -1), 2, 1, 1);
-    // cv::findChessboardCorners(image, cv::Size(8, 7), corners);
-    // cv::Mat cornersview;
-    // cv::cvtColor(image, cornersview, cv::COLOR_GRAY2BGR);
-    // double min, max;
-    // cv::minMaxLoc(image, &min, &max);
-    // double threshold = 0.1*max;
-    // corners.at
-
-
-
-    cv::Mat dst_norm, dst_norm_scaled;
-    cv::normalize( corners, dst_norm, 0, 255, cv::NORM_MINMAX, CV_8UC1, cv::Mat() );
-    cv::convertScaleAbs( dst_norm, dst_norm_scaled );
-    // cv::resize(dst_norm_scaled, dst_norm_scaled, cv::Size(dst_norm_scaled.cols/4, dst_norm_scaled.rows/4), 0, 0, cv::INTER_NEAREST);
-
-    // for( int i = 0; i < dst_norm.rows ; i++ ) {
-    //     for( int j = 0; j < dst_norm.cols; j++ ) {
-    //         if( (int) dst_norm.at<float>(i,j) > 200 ) {
-    //             cv::circle( dst_norm_scaled, cv::Point(j,i), 5,  cv::Scalar(0, 0, 255));
-    //         }
-    //     }
-    // }
-
+    cbdetect::Corner corners;
+    std::vector<cbdetect::Board> boards;
+    cbdetect::Params params;
+    params.corner_type = cbdetect::SaddlePoint;
+    
+    cbdetect::find_corners(depthimage, corners, params);
+    cbdetect::plot_corners(depthimage, corners);
+    cbdetect::boards_from_corners(depthimage, corners, boards, params);
+    cbdetect::plot_boards(depthimage, corners, boards, params);
+    
 
     //Create the point cloud
     // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudFromData(depthdata, image);
@@ -348,9 +352,9 @@ int main(int argc, char* argv[]) {
         // std::this_thread::sleep_for(100ms);
     // }
 
-    // cv::imshow("sldkfj", image);
-    cv::imshow("sldkfj", dst_norm_scaled);
-    cv::waitKey(0);
+    // cv::imshow("sldkfj", depthimage);
+    // cv::imshow("sldkfj", dst_norm_scaled);
+    // cv::waitKey(0);
 
     return 1;
 }

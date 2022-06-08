@@ -1,0 +1,3 @@
+[submodule "libcbdetect"]
+	path = libcbdetect
+	url = https://github.com/ftdlyc/libcbdetect
