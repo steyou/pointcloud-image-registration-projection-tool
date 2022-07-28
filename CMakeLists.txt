@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# message(***********3)
 project(pcl_project_image)
 add_executable(${PROJECT_NAME} main.cpp)
-
-
 
 #PCL
 find_package(PCL 1.2 REQUIRED)
@@ -14,12 +13,20 @@ if (PCL_FOUND)
     message("pcl lib is ${PCL_LIBRARIES}")
 endif()
 
-find_package(OpenCV REQUIRED)
-if (OpenCV_FOUND)
-    include_directories(${OpenCV_INCLUDE_DIRS})
-    target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS})
-    message("cv lib is ${OpenCV_LIBS}")
-endif()
+find_package(OpenCV 4.6 REQUIRED)
+# if (OpenCV_FOUND)
+include_directories(${OpenCV_INCLUDE_DIRS})
+set(abc ${OpenCV_LIBS})
+# list(TRANSFORM abc PREPEND "/usr/lib/lib")
+list(TRANSFORM abc PREPEND "lib")
+list(TRANSFORM abc APPEND ".so.406;")
+# target_link_libraries(${PROJECT_NAME} ${abc})
+target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS})
+
+# message(STATUS "OpenCV_INCLUDE_DIRS = ${OpenCV_INCLUDE_DIRS}")
+# message("cv lib is ${abc}")
+# endif()
+
 add_subdirectory(libcbdetect)
 target_include_directories(${PROJECT_NAME} PUBLIC libcbdetect/include)
 target_link_directories(${PROJECT_NAME} PUBLIC libcbdetect/src/libcbdetect)
