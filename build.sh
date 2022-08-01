@@ -1,2 +1,2 @@
 #! /bin/sh
-cd build; make
+cd libcbdetect/src; make; cd ../..; cd build; make

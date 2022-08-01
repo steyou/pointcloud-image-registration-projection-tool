@@ -1,2 +1,2 @@
 #! /bin/sh
-cmake -S . -B build/
+cd libcbdetect; cmake . -DCMAKE_BUILD_TYPE=Debug; cd ..; cmake -S . -B build/ -DCMAKE_BUILD_TYPE=Debug
