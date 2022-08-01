@@ -1,6 +1,0 @@
-[submodule "libcbdetect"]
-	path = libcbdetect
-	url = https://github.com/ftdlyc/libcbdetect
-[submodule "libcalib"]
-	path = libcalib
-	url = https://github.com/syoung114/libcalib
