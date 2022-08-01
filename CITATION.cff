@@ -4,6 +4,6 @@
   month = {10},
   title = {{Point Cloud Image Projection Tool}},
   url = {https://github.com/syoung114/projectimageonpointcloud},
-  version = {1.0.0},
+  version = {0.1.0},
   year = {2022}
 }

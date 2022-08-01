@@ -12,230 +12,391 @@
 #include <stdexcept>
 #include <filesystem>
 #include <iostream>
+#include <regex>
+
+#include <pcl/common/transforms.h>
 #include <pcl/point_cloud.h>
 #include <pcl/impl/point_types.hpp>
 #include <pcl/point_types.h>
 #include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/io/ply_io.h>
+
 #include <opencv2/opencv.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
 
-// namespace fs = std::filesystem;
+#include <boost/filesystem.hpp>
+#include <boost/algorithm/string/replace.hpp>
+#include <boost/regex.hpp>
 
-template <typename Out>
-void split(const std::string &s, char delim, Out result) {
-    std::istringstream iss(s);
-    std::string item;
-    while (std::getline(iss, item, delim)) {
-        *result++ = item;
+namespace boostfs = boost::filesystem;
+namespace chrono = std::chrono;
+
+using std::chrono_literals::operator""ms;
+
+const cv::Size DEPTH_BLOCK_SIZE = cv::Size(176, 144);
+
+enum Block { Distance, X, Y, Amplitude, Confidence };
+
+uint minOfThree(const uint n1, const uint n2, const uint n3) {
+    if (n1 < n3 && n1 < n2) {
+        return n1;
     }
-}
+    if (n2 < n1 && n2 < n3) {
+        return n2;
+    }
+    if (n3 < n1 && n3 < n2) {
+        return n3;
+    }
 
-
-std::vector<std::string> split(const std::string &s, char delim) {
-    std::vector<std::string> elems;
-    split(s, delim, std::back_inserter(elems));
-    return elems;
+    // They are equal.
+    return n1;
 }
 
 
 /**
  * Returns the contents of a point cloud .dat file
  * @param abspath The absolute path of the file you want.
- * @param sep A common string used before the group identifier string. Used to identify the beginning of a new group.
+ * @param block The section of the file you want to read. These files have the same structure, as ordered by Block.
  */
-std::unordered_map<std::string, std::vector<std::vector<std::string>>> readDatFile(const std::string abspath, const std::string sep) {
+std::vector<double> readDatFile(const std::string abspath, const Block block) {
+    // Instead of reading each section of the file by its separator, we use blcoks of fixed width and height, ignoring lines beginnign with '%'.
 
     std::ifstream file(abspath);
-
-    std::vector<std::vector<std::string>> lineset;
-    std::unordered_map<std::string, std::vector<std::vector<std::string>>> finalMap;
-
-    std::string currentKey;
-    bool nosep = true;
-
-    if (file.is_open()) {
-        std::string line;
-        while (std::getline(file, line)) {
-
-            //if the current line begins with a separator...
-            if (line.rfind(sep, 0) == 0) {
-                
-                //add to the map if there were lines before this separator.
-                if (lineset.size() > 0) {
-                    finalMap[currentKey] = lineset;
-                    lineset.clear();
-                }
-                
-                //Setting a new key indicates to add data under a new 'group'. We use the separator (current line) to index this group.
-                //The line has regex characters and spaces so they need to be removed before the line is usable enough as an index.
-                currentKey = line.substr(line.find(sep) + sep.length());
-                currentKey = currentKey.erase(currentKey.find("\r"));
-
-                nosep = false;
-                //now continue to next line in the file!
-            }
-            else if (!nosep) {
-                //Nothing else to do except add the current line to the lineset. It is under the current separator.
-                //Also separate all the numbers into their own array values. I don't like this because it is potentially more memory consuming but it is more programmatically convenient.
-                line = line.erase(line.find("\r"));
-                lineset.push_back(
-                    split(line, '\t')
-                );
-            }
-        }
-
-        //After iterating the last line we must add the lineset to the map manually because the loop does not do this.
-        if (!currentKey.empty() && lineset.size() > 0 && !nosep) {
-            finalMap[currentKey] = lineset;
-            //lineset.clear() is redundant because garbage collection is about to happen.
-        }
-        
-        file.close();
-    }
-    else {
+    if (!file.is_open()) {
         throw std::runtime_error("File " + abspath + " not found.");
     }
 
-    //Did we reach the end without a sep? If yes, it is a bad file. It is not this function's responsibility to fix it so we throw an exception.
-    if (nosep) {
-        throw std::runtime_error("No sep found.");
-    }
+    // Do not need width because we can find out the end of a line.
+    const uint startAt = block * DEPTH_BLOCK_SIZE.height;
+    const uint endAt = startAt + DEPTH_BLOCK_SIZE.height;
 
-    return finalMap;
+    // Line validation is simple: check if the line begins in a number. 
+    std::string match = "^-?\\d+(\\.\\d+)?";
+    boost::regex validLine(match.c_str());
+    
+    std::vector<double> lineset;
+    std::string line;
+    int lineIndex = 0;
+
+    while (std::getline(file, line) && lineIndex < endAt) {
+
+        // If the line does not start with a number or we are observering an unecessary line, skip this line.
+        // The order of the conditions are significant. If the data is invalid we do not increment lineIndex. This magic is how we maintain a correct count the lines within the start and end line range regardless of where the 'comment' lines are.
+        if (!boost::regex_search(line, validLine) || lineIndex++ < startAt) {
+            continue;
+        }
+
+        // Split the line into an array of numbers. I choose double because there are decimal numbers in the file, even if the numbers we are actually reading are integers. Coding the data type dynamically has no benefit.
+        std::stringstream in(line);
+        double k;
+        while(in >> k) {
+            lineset.push_back(k);
+        }
+
+    }    
+    file.close();    
+    return lineset;
+}
+
+
+pcl::PointXYZRGB pointFromVectorsAndPixel(double x, double y, double z, cv::Vec3b rgb) {
+    pcl::PointXYZRGB point;
+
+    point.x = x;
+    point.y = y;
+    point.z = z;
+
+    point.r = rgb[0];
+    point.g = rgb[1];
+    point.b = rgb[2];
+
+    return point;
 }
 
 
 /**
- * Creates a point cloud from the data points
+ * Accepts a path to a .dat file and creates a point cloud, texturing it with a given cv::Mat.
+ * @param abspath A file or folder path.
+ * @param texture An image to colour the point cloud with.
  */
-pcl::PointCloud<pcl::PointXYZ>::Ptr pointCloudFromData(const std::unordered_map<std::string, std::vector<std::vector<std::string>>> groups) {
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr readPointCloudFile(const std::string abspath, const cv::Mat texture) {
+    // This function unequally mixes file IO with processing something else. Could be bad practice, yes, but I couldn't enable image preprocessing with a string to the image path.
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr result(new pcl::PointCloud<pcl::PointXYZRGB>);
     
-    //These are references to the xyz headers in the original file.
-    const std::string xCoordSep = "Calibrated xVector";
-    const std::string yCoordSep = "Calibrated yVector";
-    const std::string zCoordSep = "Calibrated Distance";
+    // Note I could reimplement this function to get the data as it is being read. However, readDatFile is not designed to read multiple parts of a file at once, so I would rather not.
+    const std::vector<double> x = readDatFile(abspath, X);
+    const std::vector<double> y = readDatFile(abspath, Y);
+    const std::vector<double> z = readDatFile(abspath, Distance);
 
-    //Are there an equal amount of xyz points? Every valid point must have a xyz value.
-    //x implies z via y so an explicit check is unecessary.
-    if (groups.at(xCoordSep).size() != groups.at(yCoordSep).size() &&
-        groups.at(yCoordSep).size() != groups.at(zCoordSep).size() &&
-        groups.at(xCoordSep).at(0).size() != groups.at(yCoordSep).at(0).size() &&
-        groups.at(yCoordSep).at(0).size() != groups.at(zCoordSep).at(0).size()) {
+    const uint minlength = minOfThree(x.size(), y.size(), z.size());
+    const int numPixels = texture.cols * texture.rows;
 
-            throw std::runtime_error("There are not an equal amount of points.");
+    // int width;
+    // int height;
 
+    // bool widthIsSet, heightIsSet = false;
+
+    assert(minlength <= numPixels);
+
+    for (uint i = 0; i < minlength; i++) {
+        pcl::PointXYZRGB point = pointFromVectorsAndPixel(
+            x.at(i),
+            y.at(i),
+            z.at(i),
+            texture.at<cv::Vec3b>(i / numPixels, i % numPixels)
+        );
+        result->points.push_back(point);
     }
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
+    // result->width = result->size();
+    // result->height = 1;
 
-    for (int y = 0; y < groups.at(xCoordSep).size(); y++) {
-        for (int x = 0; x < groups.at(xCoordSep).at(0).size(); x++) {
-            pcl::PointXYZ point;
-            point.x = std::stod(groups.at(xCoordSep).at(y).at(x));
-            point.y = std::stod(groups.at(yCoordSep).at(y).at(x));
-            point.z = std::stod(groups.at(zCoordSep).at(y).at(x));
+    result->width = DEPTH_BLOCK_SIZE.width;
+    result->height = DEPTH_BLOCK_SIZE.height;
+
+    return result;
+
+}
+
+
+/**
+ * Accepts a path to a .dat file and creates a point cloud, texturing it with a given cv::Mat.
+ * @param abspath A file or folder path.
+ * @param texture An image to colour the point cloud with.
+ */
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr readPointCloudDir(const std::string absdir, cv::Mat texture) {
+    // This function unequally mixes file IO with processing something else. Could be bad practice, yes, but I couldn't enable image preprocessing with a string to the image path.
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr result(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+    const int numPixels = texture.cols * texture.rows;
+    cv::cvtColor(texture, texture, cv::COLOR_BGR2RGB);
+
+    // const char* matchString = std::string("depth_camera_\\d+\\.dat").c_str();
+    // boost::regex searchThisDirectory(matchString);
+
+    std::string matchString = "\\/depth_camera_\\d+\\.dat";
+    boost::regex searchThisDirectory(matchString.c_str());
+    
+    int filesFound = 0;
+    boostfs::path boostpath = boostfs::path(absdir);
+    boostfs::directory_iterator itr(boostpath);
+    for (; itr != boostfs::directory_iterator(); itr++) {
+        std::string currentFile = itr->path().string();
+        if (boost::regex_search(currentFile, searchThisDirectory)) {
+
+            const std::vector<double> x = readDatFile(currentFile, X);
+            const std::vector<double> y = readDatFile(currentFile, Y);
+            const std::vector<double> z = readDatFile(currentFile, Distance);
+
+            const uint minlength = minOfThree(x.size(), y.size(), z.size());
+
+            // Initialise the points vector and index the points within thereafter.
+            if (filesFound == 0) {
+                for (int i = 0; i < minlength; i++) {
+                    pcl::PointXYZRGB point = pointFromVectorsAndPixel(
+                        x.at(i),
+                        y.at(i),
+                        z.at(i),
+                        texture.at<cv::Vec3b>(i / numPixels, i % numPixels)
+                    );
+                    result->points.push_back(point);
+                }
+            }
+            else {
+                if (x.size() != result->points.size()) {
+                    throw std::runtime_error("Different number of X points across .dat files");
+                }
+                if (y.size() != result->points.size()) {
+                    throw std::runtime_error("Different number of Y points across .dat files");
+                }
+                if (z.size() != result->points.size()) {
+                    throw std::runtime_error("Different number of Distance points across .dat files");
+                }
+
+                for (int i = 0; i < minlength; i++) {
+                    // Multiply the last average to retrieve the sum, add on top of the sum, and divide it again + 1.
+                    result->points.at(i).x += x.at(i);
+                    result->points.at(i).y += y.at(i);
+                    result->points.at(i).z += z.at(i);
+
+                    // Rgb unecessary because there is nothing new to do.
+                }
+                
+
+            }
+
+            filesFound++;
+
         }
     }
 
-    cloud->width = cloud->size();
-    cloud->height = 1;
-
-    return cloud;
-    
-}
-
-
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointCloudFromData(const std::unordered_map<std::string, std::vector<std::vector<std::string>>> groups, cv::Mat texture) {
-    
-    //These are references to the xyz headers in the original file.
-    const std::string xCoordSep = "Calibrated xVector";
-    const std::string yCoordSep = "Calibrated yVector";
-    const std::string zCoordSep = "Calibrated Distance";
-
-    //Are there an equal amount of xyz points? Every valid point must have a xyz value.
-    //x implies z via y so an explicit check for equality with z and the others is unecessary.
-    if (groups.at(xCoordSep).size() != groups.at(yCoordSep).size() &&
-        groups.at(yCoordSep).size() != groups.at(zCoordSep).size() &&
-        groups.at(xCoordSep).at(0).size() != groups.at(yCoordSep).at(0).size() &&
-        groups.at(yCoordSep).at(0).size() != groups.at(zCoordSep).at(0).size()) {
-
-            throw std::runtime_error("There are not an equal amount of points.");
-
+    if (filesFound == 0) {
+        throw std::runtime_error("No depth file found in given path " + absdir);
     }
-    
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-
-    for (int y = 0; y < groups.at(xCoordSep).size(); y++) {
-        for (int x = 0; x < groups.at(xCoordSep).at(0).size(); x++) {
-            pcl::PointXYZRGB point;
-            point.x = std::stod(groups.at(xCoordSep).at(y).at(x));
-            point.y = std::stod(groups.at(yCoordSep).at(y).at(x));
-            point.z = std::stod(groups.at(zCoordSep).at(y).at(x));
-            
-            cv::Vec3b texrgb = texture.at<cv::Vec3b>(cv::Point(x,y));
-            
-            point.r = texrgb[2];
-            point.g = texrgb[1];
-            point.b = texrgb[0];
-            // texture.at(x, y);
-
-            // point.g = texture.at<uint8_t>(x, y)[1];
-            // point.b = texture.at<uint8_t>(x, y)[2];
-            cloud->points.push_back(point);
+    else if (filesFound > 1) {
+        for (int i = 0; i < result->points.size(); i++) {
+            // Finally convert the sums to averages.
+            result->points.at(i).x /= filesFound;
+            result->points.at(i).y /= filesFound;
+            result->points.at(i).z /= filesFound;
         }
     }
 
-    cloud->width = cloud->size();
-    cloud->height = 1;
+    // result->width = result->size();
+    // result->height = 1;
 
-    return cloud;
-}
-
-
-pcl::visualization::PCLVisualizer::Ptr visualizePointCloud (pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud) {
-    pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer("3D Viewer"));
-    viewer->setBackgroundColor (0, 0, 0);
-    viewer->addPointCloud<pcl::PointXYZ> (cloud, "sample cloud");
-    viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
-    viewer->addCoordinateSystem (0.01);
-    viewer->initCameraParameters();
-    return (viewer);
-}
-
-
-pcl::visualization::PCLVisualizer::Ptr visualizePointCloud (pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr cloud)
-{
-    pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
-    viewer->setBackgroundColor (0, 0.1, 0);
-    pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb(cloud);
-    viewer->addPointCloud<pcl::PointXYZRGB> (cloud, rgb, "sample cloud");
-    viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
-    viewer->addCoordinateSystem (0.01);
-    viewer->initCameraParameters ();
-    return (viewer);
-}
-
-
-cv::Mat createDepthImageFromAmplitudes(std::vector<std::vector<std::string>> amplitudes) {
-    // cv::Mat result = cv::Mat::zeros(cv::Size(amplitudes.size(), amplitudes.at(0).size()));
-    cv::Mat result = cv::Mat(cv::Size(amplitudes.at(0).size(), amplitudes.size()), CV_8UC1);
-    uchar pixValue;
-    int i = 0;
-    for (i; i < result.cols; i++) {
-        for (int j = 0; j < result.rows; j++) {
-            cv::Vec3b &intensity = result.at<cv::Vec3b>(j, i);
-            //note this variable could be typed uint8_t because all possible values range 0-255. I wont do this because I have no idea if that introduces any problems.
-            int color = std::round(std::stod(amplitudes.at(j).at(i)) / 16382 * 255);
-            result.at<uchar>(j,i) = color;
-            
-        }
-    }
+    result->width = DEPTH_BLOCK_SIZE.width;
+    result->height = DEPTH_BLOCK_SIZE.height;
 
     return result;
 }
 
+
+cv::Mat readAmplitudeImage(const std::string abspath) {
+    const std::vector<double> amplitudes = readDatFile(abspath, Amplitude);
+    cv::Mat result = cv::Mat(DEPTH_BLOCK_SIZE, CV_8UC1);
+    const int numPixels = result.cols * result.rows;
+    for (int i = 0; i < numPixels; i++) {
+        int color = std::round(amplitudes[i] / 16382 * 255);
+        result.at<uchar>(i / numPixels, i % numPixels) = color;
+    }
+    return result;
+}
+
+void detectChessCorners(std::string inputDir, std::string outputBase) {
+    // const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_25/day_1/calib/scene_1";
+    // inputDir = debugimgpath;
+    std::string depthFile = "/depth_camera/depth_camera_1.dat";
+    std::string photoFile = "/photo.jpg";
+
+    cv::Mat amplitudeImage = readAmplitudeImage(inputDir + depthFile);
+    cv::Mat photoImage = cv::imread(inputDir + photoFile);
+
+    cv::resize(amplitudeImage, amplitudeImage, DEPTH_BLOCK_SIZE*2);
+    cv::resize(photoImage, photoImage, cv::Size(photoImage.cols/2, photoImage.rows/2));
+
+    std::vector<cv::Point2f> depthcorners, rgbcorners;
+    bool depthfound = cv::findChessboardCorners(amplitudeImage, cv::Size(8, 7), depthcorners);
+    bool rgbfound = cv::findChessboardCorners(photoImage, cv::Size(8, 7), rgbcorners);
+
+
+    if (!depthfound || !rgbfound) {
+        return;
+    }
+
+    // Because we upscaled the images to find the corners better, we now must downscale the point coordinates back before continuing.
+    if (depthcorners.size() == rgbcorners.size()) {
+        for (int i = 0; i < depthcorners.size(); i++) {
+            depthcorners.at(i).x /= 2;
+            depthcorners.at(i).y /= 2;
+            rgbcorners.at(i).x *= 2;
+            rgbcorners.at(i).y *= 2;
+        }
+    }
+    else {
+        // Note I believe image registration inaccuracies are likely if we enter here.
+        for (int i = 0; i < depthcorners.size(); i++) {
+            depthcorners.at(i).x /= 2;
+            depthcorners.at(i).y /= 2;
+        }
+        for (int i = 0; i < rgbcorners.size(); i++) {
+            rgbcorners.at(i).x *= 2;
+            rgbcorners.at(i).y *= 2;
+        }
+    }
+
+    // We want to project rgb -> depth, so the order of the arguments are correct.
+    cv::Mat homography = cv::findHomography(rgbcorners, depthcorners);
+    // std::cout << homography << std::endl;
+
+    std::string actualrgbfile = "/../../data/scene_" + inputDir.substr(inputDir.length()-1) + "/photo.jpg";
+    if (!boostfs::exists(inputDir + actualrgbfile)) {
+        std::cout << inputDir + actualrgbfile << std::endl;
+        return;
+    }
+    cv::Mat actualrgb = cv::imread(inputDir + actualrgbfile);
+    cv::cvtColor(actualrgb, actualrgb, cv::COLOR_BGR2RGB);
+
+    cv::Mat warped;
+    cv::warpPerspective(actualrgb, warped, homography, DEPTH_BLOCK_SIZE);
+    cv::cvtColor(warped, warped, cv::COLOR_BGR2RGB);
+
+    std::string actualpointcloudfile = "/../../data/scene_" + inputDir.substr(inputDir.length()-1) + "/depth_camera";
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = readPointCloudDir(inputDir + actualpointcloudfile, warped);
+
+    // The processed point clouds are scaled 1000 times. Do the same here.
+    // The fourth one in a trs matrix expresses shear. We do not want to shear, so we create a block that targets the 1s before it.
+    Eigen::Matrix4f scaleMatrix = Eigen::Matrix4f::Identity();
+    scaleMatrix.block<4,3>(0,0) *= 1000;
+    pcl::transformPointCloud(*pointcloud, *pointcloud, scaleMatrix);
+
+    pcl::PLYWriter writer = pcl::PLYWriter();
+
+    // TODO write code that finds the intersection between the inputDir and the outputBase to calculate debugbase dynamically
+    const std::string debugbasedir = "/home/steven/Desktop/ulcerdatabase/patients";
+    std::string currentTarget = inputDir.substr(
+        inputDir.find(debugbasedir) + debugbasedir.length()
+    );
+    std::string fullExportPath = outputBase + currentTarget;
+    // std::cout << fullExportPath << std::endl;
+
+    boostfs::create_directories(fullExportPath);
+    writer.write(fullExportPath + "/rgb.ply", *pointcloud);    
+
+    // cv::imshow("sldkfj", amplitudeImage);
+    // cv::waitKey(0);
+        
+}
+
+/**
+ * Verifies if a directory contains a matching sub-directory, as defined in `regexCriteria`, and if so, executes an arbitrary function, for each matching sub-directory.
+ * @param b An optional arbitrary string to pass to the function. It is the second argument of the function. The first argument is always the discovered directory.
+*/
+bool searchDirs(std::string basePath, std::deque<std::string> regexCriteria, void (*doWhenMet)(std::string, std::string), const std::string b = "") {
+    // This function exists for a few reasons:
+    //      1 - I needed to use boostfs::recursive_directory_iterator but I do not need the same amount of search depth.
+    //      2 - Looping through directories and executing specific functions is a nice-to-have if I convert this into a terminal app
+    //      3 - Minimise code re-use. if I need to search the (tedious) dataset folder, I can do so just with this function.
+
+    bool customFunctionExecuted = false;
+
+    std::string first = regexCriteria.front();
+    boost::regex searchThisDirectory(first.c_str());
+
+    boostfs::path boostpath = boostfs::path(basePath);
+    boostfs::directory_iterator itr(boostpath);
+    for (; itr != boostfs::directory_iterator(); itr++) {
+
+        std::string currentPath = itr->path().string();
+        
+        // This area has all the criteria so execute the function
+        // We stop at one criterion left because it is the last. Directory names can be treated exclusive here.
+        // TODO write wrapper function that asserts > 1
+        if (regexCriteria.size() == 1) {
+            // inputDir = currentPath;
+            (*doWhenMet)(currentPath, b);
+            customFunctionExecuted = true;
+        }
+        // Is this inside the root directory?
+        // this is an else-if because it must be mutually exclusive from the first if.
+        else if (boost::regex_search(currentPath, searchThisDirectory)) {
+            // Remove the first criteria so we can check the rest in the next search deeper.
+            regexCriteria.pop_front();
+            
+            // Recursion recursion recursion recursion
+            searchDirs(currentPath, regexCriteria, doWhenMet, b);
+
+            // Adding back the criteria may seem counterintuitive but it must be done in case there are multiple folders in this current path (remember we're also in a for loop).
+            regexCriteria.push_front(first);
+        }
+        // If no, do not search deeper.
+    }
+    return customFunctionExecuted;
+};
 
 int main(int argc, char* argv[]) {
 
@@ -260,138 +421,44 @@ int main(int argc, char* argv[]) {
     // std::cout << "sdlkfjhsdklf" << std::endl;
     // std::vector<std::string> rawpcdata = readFile(argv[1]);
 
-
-    // const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_2/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-    const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_map_1.png";
+    // Top two vars are used for example clouds/images
+    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
+    const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/photo.jpg";
     
-    const std::string debugbaserecurse = "/home/steven/Desktop/ulcerdatabase/patients";
-    const std::string debugtargetrecurse = "/calib/scene_1/depth_camera/";
-    
-    //"In UNIX everything is a file". Count the number of folders.
-    // int casefolders = countFiles(debugbaserecurse);
+    const std::string debugbasedir = "/home/steven/Desktop/ulcerdatabase/patients";
+    const std::string debugexportbase = "/home/steven/Desktop/alignedwounds";
+    const bool debuguseregistration = true;
 
-    // std::string debugpcpath = "";
-    std::unordered_map<std::string, std::vector<std::vector<std::string>>> asd = readDatFile(debugpcpath, "% ");
-    
-    //Note: accessing the folders this way does not respect alphanumeric order. I think this is fortunately irrelevant for what I am trying to do.
-    // for (const auto & patient : fs::directory_iterator(debugbaserecurse)) {
-    //     for (const auto & day : fs::directory_iterator(patient.path())) {
-    //         std::string currentpath = (std::string)day.path() + debugtargetrecurse;
-    //         std::string pathwithfile = currentpath + "depth_camera_1.dat"; 
-    //         // int depthcameracount = countFiles(currentpath);
-
-    //         std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata;
-    //         bool nullness = true;
-    //         try {
-    //             depthdata = readDatFile(pathwithfile, "% ");
-    //             nullness = false;
-    //         }
-    //         //Empty catch may seem dubious but the only time exceptions should only happen when the file is wrong. In that case there is nothing the program can do but move on.
-    //         catch(const std::runtime_error& e) {/*nothing*/}                
-    //         if (!nullness) {
-                cv::Mat depthimage = createDepthImageFromAmplitudes(asd.at("Amplitude"));
-                // cv::Mat depthimage = createDepthImageFromAmplitudes(depthdata.at("Amplitude"));
-    //             // cv::namedWindow("sldkfjsfd", cv::WINDOW_NORMAL);
-    //             // cv::resize(depthimage, depthimage, cv::Size(720,880), 0, 0, cv::INTER_NEAREST);
-    //             std::cout << pathwithfile << std::endl;
-    //             cv::imshow("cvwindow", depthimage);
-    //             cv::waitKey(0);
-    //             cv::imwrite(currentpath + "depth_map_1.png", depthimage);
-    //         }
-    //     }
-    // }
-    
-    // std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata = readDatFile(debugpcpath, "% ");
-
-    //Get the data
-    // cv::Mat image = cv::imread(debugimgpath, 1);
-
-    // cv::Mat im2;
-    // cv::resize(image, image, cv::Size(176, 144), cv::INTER_LINEAR);
-    // cv::cvtColor(image, image, cv::COLOR_BGR2GRAY);
-    // cv::resize(image, image, cv::Size(720, 880), 0, 0, cv::INTER_NEAREST);
-
-
-    cv::Mat rgbimage = cv::imread("/home/steven/Desktop/ulcerdatabase/patients/case_2/day_1/calib/scene_1/photo.jpg", cv::IMREAD_GRAYSCALE);
-    std::cout << rgbimage.size << std::endl;
-    // cv::cvtColor(rgbimage,rgbimage,cv::COLOR_BGR2GRAY);
-    
-    // cv::resize(depthimage, depthimage, rgbimage.size(), cv::INTER_LINEAR);
-    // cv::resize(rgbimage, rgbimage, cv::Size(1920,1080), cv::INTER_LINEAR);
-    // cv::resize(rgbimage, rgbimage, cv::Size(rgbimage.cols/2,rgbimage.rows/2), cv::INTER_LINEAR);
-    std::cout << rgbimage.size << std::endl;
-
-    // cv::rectangle(rgbimage, cv::Point(200,200), cv::Point(800,800), cv::Scalar(255,0,0));
-
-    // //Centre crop the image.
-    // const float cropscalar = 1.0;
-    // cv::Rect r = cv::Rect(
-    //     (float)rgbimage.cols/2.0-(float)depthimage.cols*cropscalar/2.0,
-    //     (float)rgbimage.rows/2.0-(float)depthimage.rows*cropscalar/2.0,
-    //     depthimage.cols*cropscalar,
-    //     depthimage.rows*cropscalar
-    // );
-
-    // std::cout << (float)r.width/(float)r.height << std::endl;
-    // std::cout << (float)depthimage.cols/(float)depthimage.rows << std::endl;
-    
-    // rgbimage = rgbimage(r);
-    // cv::rectangle(rgbimage,r,cv::Scalar(255,0,0),10);
-    // cv::resize(rgbimage, rgbimage, depthimage.size(), cv::INTER_LINEAR);
-
-    // cv::imshow("sldkfj", rgbimage);
-    // cv::waitKey(0);
-
-    // Registration code from https://docs.opencv.org/4.x/d9/dab/tutorial_homography.html
-    std::vector<cv::Point2f> depthcorners, rgbcorners;
-    bool depthfound = cv::findChessboardCorners(depthimage, cv::Size(8, 7), depthcorners);
-    bool rgbfound = cv::findChessboardCorners(rgbimage, cv::Size(8, 7), rgbcorners);
-    
-    if (depthfound && rgbfound) {
-        cv::Mat homography = cv::findHomography(rgbcorners,depthcorners);
-        std::cout << homography << std::endl;
-
-        cv::Mat actualrgb = cv::imread("/home/steven/Desktop/ulcerdatabase/patients/case_2/day_1/data/scene_1/photo.jpg");
-        cv::cvtColor(actualrgb, actualrgb, cv::COLOR_BGR2RGB);
+    if (debuguseregistration) {
         
-        cv::Mat warped;
-        cv::warpPerspective(actualrgb, warped, homography, actualrgb.size());
-
-        // cv::imshow("", warped);
-        // cv::waitKey(0);
-
-        //If you imshow the warped image you will see that there are unneeded pixels beyond the borders of the depth camera. These two lines crops the image back to the borders.
-        cv::Rect r2 = cv::Rect(0,0,depthimage.cols,depthimage.rows);
-        warped = warped(r2);
-        
-        // cv::cvtColor(warped,warped,cv::COLOR_GRAY2BGR);
-        cv::cvtColor(warped,warped,cv::COLOR_BGR2RGB);
-        // cv::imwrite("/home/steven/Desktop/alignedimage.jpg",warped);
-        // cv::resize(warped, warped, depthimage.size(), cv::INTER_LINEAR);
-
-        //Create the point cloud
-        const std::string thefootpath = "/home/steven/Desktop/ulcerdatabase/patients/case_2/day_1/data/scene_1/depth_camera/depth_camera_1.dat";
-        std::unordered_map<std::string, std::vector<std::vector<std::string>>> rawDat = readDatFile(thefootpath, "% ");
-
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudFromData(rawDat, warped);
-        // std::cout << pointcloud.get() << endl;
-
-        // Create the visualiser and render it.
-        pcl::visualization::PCLVisualizer::Ptr viewer = visualizePointCloud(pointcloud);
-        while (!viewer->wasStopped()) {
-            viewer->spin();
+        std::vector<std::string> a = {"case_\\d*$", "day_\\d*$", "calib$", "scene_\\d*$"};
+        std::deque<std::string> b;
+        for (std::string thing : a) {
+            b.push_back(thing);
         }
+        searchDirs(debugbasedir, b, detectChessCorners, debugexportbase);
 
     }
-    else {
-        std::cout << "Registration Error." << std::endl;
-        std::cout << "Found depth chessboard: " << depthfound << std::endl;
-        std::cout << "Found rgb chessboard: " << rgbfound << std::endl;
-    }
-
 
     
+
+    //Create the point cloud
+    // cv::Mat img = cv::imread(debugimgpath);
+    // cv::resize(img, img, DEPTH_BLOCK_SIZE);
+    // // std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata = readDatFile(debugpcpath, "% ");
+    // // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudFromData(depthdata, img);
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = readPointCloudFile(debugpcpath, img);
+
+    // //Create the visualiser and render it.
+    // pcl::visualization::PCLVisualizer::Ptr viewer = visualizePointCloud(pointcloud);
+    // while (!viewer->wasStopped()) {
+    //     viewer->spin();
+    //     std::this_thread::sleep_for(100ms);
+    // }
+
+    // cv::imshow("sldkfj", depthimage);
+    // cv::imshow("sldkfj", dst_norm_scaled);
+    // cv::waitKey(0);
 
     return 1;
 }

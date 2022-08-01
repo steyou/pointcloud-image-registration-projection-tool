@@ -1,6 +1,7 @@
-cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# message(***********3)
 project(pcl_project_image)
-add_executable(pcl_project_image main.cpp)
+add_executable(${PROJECT_NAME} main.cpp)
 
 #PCL
 find_package(PCL 1.2 REQUIRED)
@@ -8,22 +9,25 @@ if (PCL_FOUND)
     include_directories(${PCL_INCLUDE_DIRS})
     link_directories(${PCL_LIBRARY_DIRS})
     add_definitions(${PCL_DEFINITIONS})
-    target_link_libraries(pcl_project_image ${PCL_LIBRARIES})
+    target_link_libraries(${PROJECT_NAME} ${PCL_LIBRARIES})
+    message("pcl lib is ${PCL_LIBRARIES}")
 endif()
 
-find_package(OpenCV REQUIRED)
-if (OpenCV_FOUND)
-    include_directories(${OpenCV_INCLUDE_DIRS})
-    target_link_libraries(pcl_project_image ${OpenCV_LIBS})
-endif()
-
-# find_package(VTK REQUIRED)
-# include_directories(SYSTEM ${VTK_INCLUDE_DIRS})
-# include(${VTK_USE_FILE})
-
-
-# if (PCL_FOUND)
-# endif()
+find_package(OpenCV 4.6 REQUIRED)
 # if (OpenCV_FOUND)
+include_directories(${OpenCV_INCLUDE_DIRS})
+set(abc ${OpenCV_LIBS})
+# list(TRANSFORM abc PREPEND "/usr/lib/lib")
+list(TRANSFORM abc PREPEND "lib")
+list(TRANSFORM abc APPEND ".so.406;")
+# target_link_libraries(${PROJECT_NAME} ${abc})
+target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS})
+
+# message(STATUS "OpenCV_INCLUDE_DIRS = ${OpenCV_INCLUDE_DIRS}")
+# message("cv lib is ${abc}")
 # endif()
-#OpenCV
+
+# add_subdirectory(libcbdetect)
+# target_include_directories(${PROJECT_NAME} PUBLIC libcbdetect/include)
+# target_link_directories(${PROJECT_NAME} PUBLIC libcbdetect/src/libcbdetect)
+# target_link_libraries(${PROJECT_NAME} ${PROJECT_SOURCE_DIR}/libcbdetect/lib/libcbdetect.so)
