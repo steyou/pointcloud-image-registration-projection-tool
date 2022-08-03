@@ -260,16 +260,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr readPointCloudDir(const std::string absdi
         }
     }
 
-    // result->width = result->size();
-    // result->height = 1;
-
     result->width = DEPTH_BLOCK_SIZE.width;
     result->height = DEPTH_BLOCK_SIZE.height;
-
-    // result->width = DEPTH_BLOCK_SIZE.area();
-    // result->height = 1;
-
-    std::cout << result.get()->size() << std::endl;
 
     return result;
 }
@@ -288,16 +280,7 @@ cv::Mat readAmplitudeImage(const std::string abspath) {
 
 
 cv::Mat readAmplitudeImageDir(const std::string absdir) {
-/*
-    const std::vector<double> amplitudes = readDatFile(abspath, Amplitude);
-    cv::Mat result = cv::Mat(DEPTH_BLOCK_SIZE, CV_8UC1);
-    const int numPixels = result.cols * result.rows;
-    for (int i = 0; i < numPixels; i++) {
-        int color = std::round(amplitudes[i] / 16382 * 255);
-        result.at<uchar>(i / numPixels, i % numPixels) = color;
-    }
-    return result;
-*/
+
     cv::Mat result = cv::Mat(DEPTH_BLOCK_SIZE, CV_8UC1);
     std::vector<double> sumAmplitudes;
 
@@ -393,28 +376,8 @@ cv::Mat calibrateImage(std::string inputDir) {
 
     // We want to project rgb -> depth, so the order of the arguments are correct.
     cv::Mat homography = cv::findHomography(rgbcorners, depthcorners);
-    // std::cout << homography << std::endl;
     return homography;
 }
-
-
-// int countFileLines(std::string abspath) {
-//     std::ifstream file(abspath);
-//     if (!file.is_open()) {
-//         throw std::runtime_error("File " + abspath + " not found.");
-//     }
-
-//     int lines = 0;
-
-//     // We do not actually need this variable other than to call the getline function.
-//     std::string line;
-
-//     while (std::getline(file, line)) {
-//         lines++;
-//     }
-
-//     return lines;
-// }
 
 /**
  * Reads an entire text file. Calling this is likely slower than processing data within the same function.
@@ -481,7 +444,7 @@ void calibrateAndExport(std::string inputDir, std::string outputBase) {
         homography = calibrateImage(inputDir);
     }
     catch (std::runtime_error e) {
-        std::cout << inputDir << std::endl;
+        // std::cout << inputDir << std::endl;
         return;
     }
 
@@ -494,13 +457,6 @@ void calibrateAndExport(std::string inputDir, std::string outputBase) {
     pathTwoBack.pop_back();
     const std::string caseAndDay = substrFromIndex(pathTwoBack, "/", -2);
     const std::string calibSceneName = substrFromIndex(inputDir, "/", -1);
-
-    // const std::string caseName = caseAndDay.substr(0, getStrIndex(caseAndDay, "/", 1));
-    // const int caseNum = std::stoi(
-    //     caseName.substr(
-    //         getStrIndex(caseName, "_", 0) + 1
-    //     )
-    // );    
     
     boostfs::path boostpath = boostfs::path(inputDir + "/../../data");
     boostfs::directory_iterator itr(boostpath);
@@ -584,29 +540,6 @@ bool searchDirs(std::string basePath, std::deque<std::string> regexCriteria, voi
     }
     return customFunctionExecuted;
 };
-
-
-// void searchData(const std::string baseDir, const std::string outputBase) {
-
-//     const std::vector<std::string> a = {"case_\\d*$", "day_\\d*$", "data$", "scene_\\d*$"};
-//     std::deque<std::string> b;
-//     for (std::string thing : a) {
-//         b.push_back(thing);
-//     }
-//     searchDirs(baseDir, b, relativeCalib, outputBase);
-
-// }
-
-// void relativeCalib(std::string dataScene, std::string outputBase) {
-//     const std::vector<std::string> a = {"scene_\\d*$"};
-//     std::deque<std::string> b;
-//     for (std::string thing : a) {
-//         b.push_back(thing);
-//     }
-//     searchDirs(dataScene + "/../../data", b, calibrateAndExport, outputBase);
-// }
-
-
 
 
 int main(int argc, char* argv[]) {
