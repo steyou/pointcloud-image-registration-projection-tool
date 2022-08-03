@@ -28,6 +28,7 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/replace.hpp>
+#include <boost/algorithm/string/find.hpp>
 #include <boost/regex.hpp>
 
 namespace boostfs = boost::filesystem;
@@ -35,9 +36,24 @@ namespace chrono = std::chrono;
 
 using std::chrono_literals::operator""ms;
 
+const std::string CWD = boostfs::current_path().string();
+const std::string EXPORT_LIST_PATH = CWD + "/exportlist.txt";
+
 const cv::Size DEPTH_BLOCK_SIZE = cv::Size(176, 144);
 
 enum Block { Distance, X, Y, Amplitude, Confidence };
+
+bool exportListLoaded = false;
+std::set<std::string> exportList;
+
+/**
+ * Converts a bool to a "True" or "False" string representation.
+ * @param a The boolean to convert.
+ */
+std::string bolst(bool a) {
+    return a ? "True" : "False";
+}
+
 
 uint minOfThree(const uint n1, const uint n2, const uint n3) {
     if (n1 < n3 && n1 < n2) {
@@ -186,52 +202,50 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr readPointCloudDir(const std::string absdi
     boostfs::directory_iterator itr(boostpath);
     for (; itr != boostfs::directory_iterator(); itr++) {
         std::string currentFile = itr->path().string();
-        if (boost::regex_search(currentFile, searchThisDirectory)) {
-
-            const std::vector<double> x = readDatFile(currentFile, X);
-            const std::vector<double> y = readDatFile(currentFile, Y);
-            const std::vector<double> z = readDatFile(currentFile, Distance);
-
-            const uint minlength = minOfThree(x.size(), y.size(), z.size());
-
-            // Initialise the points vector and index the points within thereafter.
-            if (filesFound == 0) {
-                for (int i = 0; i < minlength; i++) {
-                    pcl::PointXYZRGB point = pointFromVectorsAndPixel(
-                        x.at(i),
-                        y.at(i),
-                        z.at(i),
-                        texture.at<cv::Vec3b>(i / numPixels, i % numPixels)
-                    );
-                    result->points.push_back(point);
-                }
-            }
-            else {
-                if (x.size() != result->points.size()) {
-                    throw std::runtime_error("Different number of X points across .dat files");
-                }
-                if (y.size() != result->points.size()) {
-                    throw std::runtime_error("Different number of Y points across .dat files");
-                }
-                if (z.size() != result->points.size()) {
-                    throw std::runtime_error("Different number of Distance points across .dat files");
-                }
-
-                for (int i = 0; i < minlength; i++) {
-                    // Multiply the last average to retrieve the sum, add on top of the sum, and divide it again + 1.
-                    result->points.at(i).x += x.at(i);
-                    result->points.at(i).y += y.at(i);
-                    result->points.at(i).z += z.at(i);
-
-                    // Rgb unecessary because there is nothing new to do.
-                }
-                
-
-            }
-
-            filesFound++;
-
+        if (!boost::regex_search(currentFile, searchThisDirectory)) {
+            continue;
         }
+
+        const std::vector<double> x = readDatFile(currentFile, X);
+        const std::vector<double> y = readDatFile(currentFile, Y);
+        const std::vector<double> z = readDatFile(currentFile, Distance);
+
+        const uint minlength = minOfThree(x.size(), y.size(), z.size());
+
+        // Initialise the points vector and index the points within thereafter.
+        if (filesFound > 0) {
+            if (x.size() != result->points.size()) {
+                throw std::runtime_error("Different number of X points across .dat files");
+            }
+            if (y.size() != result->points.size()) {
+                throw std::runtime_error("Different number of Y points across .dat files");
+            }
+            if (z.size() != result->points.size()) {
+                throw std::runtime_error("Different number of Distance points across .dat files");
+            }
+
+            for (int i = 0; i < minlength; i++) {
+                // Multiply the last average to retrieve the sum, add on top of the sum, and divide it again + 1.
+                result->points.at(i).x += x.at(i);
+                result->points.at(i).y += y.at(i);
+                result->points.at(i).z += z.at(i);
+
+                // Rgb unecessary because there is nothing new to do.
+            }            
+                
+        }        
+        else {
+            for (int i = 0; i < minlength; i++) {
+                pcl::PointXYZRGB point = pointFromVectorsAndPixel(
+                    x.at(i),
+                    y.at(i),
+                    z.at(i),
+                    texture.at<cv::Vec3b>(i / numPixels, i % numPixels)
+                );
+                result->points.push_back(point);
+            }
+        }
+        filesFound++;
     }
 
     if (filesFound == 0) {
@@ -252,6 +266,11 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr readPointCloudDir(const std::string absdi
     result->width = DEPTH_BLOCK_SIZE.width;
     result->height = DEPTH_BLOCK_SIZE.height;
 
+    // result->width = DEPTH_BLOCK_SIZE.area();
+    // result->height = 1;
+
+    std::cout << result.get()->size() << std::endl;
+
     return result;
 }
 
@@ -267,14 +286,77 @@ cv::Mat readAmplitudeImage(const std::string abspath) {
     return result;
 }
 
-void detectChessCorners(std::string inputDir, std::string outputBase) {
+
+cv::Mat readAmplitudeImageDir(const std::string absdir) {
+/*
+    const std::vector<double> amplitudes = readDatFile(abspath, Amplitude);
+    cv::Mat result = cv::Mat(DEPTH_BLOCK_SIZE, CV_8UC1);
+    const int numPixels = result.cols * result.rows;
+    for (int i = 0; i < numPixels; i++) {
+        int color = std::round(amplitudes[i] / 16382 * 255);
+        result.at<uchar>(i / numPixels, i % numPixels) = color;
+    }
+    return result;
+*/
+    cv::Mat result = cv::Mat(DEPTH_BLOCK_SIZE, CV_8UC1);
+    std::vector<double> sumAmplitudes;
+
+    const int numPixels = result.cols * result.rows;
+
+    std::string matchString = "\\/depth_camera_\\d+\\.dat";
+    boost::regex searchThisDirectory(matchString.c_str());
+
+    int filesFound = 0;
+    boostfs::path boostpath = boostfs::path(absdir);
+    boostfs::directory_iterator itr(boostpath);
+    for (; itr != boostfs::directory_iterator(); itr++) {
+        std::string currentFile = itr->path().string();
+        if (!boost::regex_search(currentFile, searchThisDirectory)) {
+            continue;
+        }
+        const std::vector<double> amplitudes = readDatFile(currentFile, Amplitude);
+        if (filesFound > 0) {
+            if (amplitudes.size() != numPixels) {
+                throw std::runtime_error("Unequal number of pixels in image.");
+            }
+            for (int i = 0; i < numPixels; i++) {
+                sumAmplitudes[i] += amplitudes[i];
+            }
+        }
+        else {
+            sumAmplitudes = amplitudes;
+        } 
+        filesFound++;
+    }
+
+    if (filesFound == 0) {
+        throw std::runtime_error("No depth file found in given path " + absdir);
+    }
+
+    for (int i = 0; i < sumAmplitudes.size(); i++) {
+        // Finally convert the sums to averages.
+        int calc = std::round(sumAmplitudes[i] / (16382 * filesFound) * 255);
+        uchar colour = calc;
+        result.at<uchar>(i / numPixels, i % numPixels) = colour;
+    }
+    return result;
+}
+
+
+/**
+ * Calibrates a rgb image to a depth image given a path to a calibration folder.
+ */
+cv::Mat calibrateImage(std::string inputDir) {
     // const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_25/day_1/calib/scene_1";
     // inputDir = debugimgpath;
     std::string depthFile = "/depth_camera/depth_camera_1.dat";
     std::string photoFile = "/photo.jpg";
 
-    cv::Mat amplitudeImage = readAmplitudeImage(inputDir + depthFile);
+    cv::Mat amplitudeImage = readAmplitudeImageDir(inputDir + "/depth_camera/");
     cv::Mat photoImage = cv::imread(inputDir + photoFile);
+
+    // cv::imshow("sdfsd", amplitudeImage);
+    // cv::waitKey();
 
     cv::resize(amplitudeImage, amplitudeImage, DEPTH_BLOCK_SIZE*2);
     cv::resize(photoImage, photoImage, cv::Size(photoImage.cols/2, photoImage.rows/2));
@@ -285,7 +367,7 @@ void detectChessCorners(std::string inputDir, std::string outputBase) {
 
 
     if (!depthfound || !rgbfound) {
-        return;
+        throw std::runtime_error("Corners detection mismatch. depth: " + bolst(depthfound) + " rgb: " + bolst(rgbfound));
     }
 
     // Because we upscaled the images to find the corners better, we now must downscale the point coordinates back before continuing.
@@ -312,49 +394,155 @@ void detectChessCorners(std::string inputDir, std::string outputBase) {
     // We want to project rgb -> depth, so the order of the arguments are correct.
     cv::Mat homography = cv::findHomography(rgbcorners, depthcorners);
     // std::cout << homography << std::endl;
+    return homography;
+}
 
-    std::string actualrgbfile = "/../../data/scene_" + inputDir.substr(inputDir.length()-1) + "/photo.jpg";
-    if (!boostfs::exists(inputDir + actualrgbfile)) {
-        std::cout << inputDir + actualrgbfile << std::endl;
+
+// int countFileLines(std::string abspath) {
+//     std::ifstream file(abspath);
+//     if (!file.is_open()) {
+//         throw std::runtime_error("File " + abspath + " not found.");
+//     }
+
+//     int lines = 0;
+
+//     // We do not actually need this variable other than to call the getline function.
+//     std::string line;
+
+//     while (std::getline(file, line)) {
+//         lines++;
+//     }
+
+//     return lines;
+// }
+
+/**
+ * Reads an entire text file. Calling this is likely slower than processing data within the same function.
+ */
+std::set<std::string> readFile(std::string abspath) {
+    std::ifstream file(abspath);
+    if (!file.is_open()) {
+        throw std::runtime_error("File " + abspath + " not found.");
+    }
+
+    std::set<std::string> lines;
+    std::string line;
+
+    while (std::getline(file, line)) {
+        lines.emplace(line);
+    }
+
+    return lines;
+}
+
+
+
+bool searchExportList(std::string caseDayDataScene) {
+
+    if (!exportListLoaded) {
+        exportList = readFile(EXPORT_LIST_PATH);
+    }
+
+    return exportList.find(caseDayDataScene) != exportList.end();
+}
+
+
+
+void writePointCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud, std::string exportTo, std::string fname) {
+    pcl::PLYWriter writer = pcl::PLYWriter();
+    boostfs::create_directories(exportTo);
+    writer.write(exportTo + fname, *pointcloud);    
+}
+
+
+int getStrIndex(std::string searchString, std::string searchFor, int nth) {
+    boost::iterator_range<std::string::iterator> r = boost::find_nth(searchString, searchFor, nth);
+    int index = std::distance(searchString.begin(), r.begin());
+    return index;
+
+}
+
+
+std::string substrFromIndex(std::string searchString, std::string searchFor, int nth) {
+    int index = getStrIndex(searchString, searchFor, nth);
+    std::string s = searchString.substr(index);
+    return s;
+}
+
+
+/**
+ * Given a calibration folder, calibrates the depth and rgb images, then applies that calibration to the actual rgb image from the same scene in the data folder.
+ * The result is exported to a specified base location mirroring the input directory structure.
+ */
+void calibrateAndExport(std::string inputDir, std::string outputBase) {
+    
+    cv::Mat homography;
+    try {
+        homography = calibrateImage(inputDir);
+    }
+    catch (std::runtime_error e) {
+        std::cout << inputDir << std::endl;
         return;
     }
-    cv::Mat actualrgb = cv::imread(inputDir + actualrgbfile);
-    cv::cvtColor(actualrgb, actualrgb, cv::COLOR_BGR2RGB);
 
-    cv::Mat warped;
-    cv::warpPerspective(actualrgb, warped, homography, DEPTH_BLOCK_SIZE);
-    cv::cvtColor(warped, warped, cv::COLOR_BGR2RGB);
+    // std::string matchString = "\\/depth_camera_\\d+\\.dat";
+    std::string matchString = "\\/scene_\\d+";
+    boost::regex searchThisDirectory(matchString.c_str());
 
-    std::string actualpointcloudfile = "/../../data/scene_" + inputDir.substr(inputDir.length()-1) + "/depth_camera";
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = readPointCloudDir(inputDir + actualpointcloudfile, warped);
+    // Build some strings that will be used to save the point cloud.
+    std::string pathTwoBack = boostfs::canonical(inputDir + "/../../").string();
+    pathTwoBack.pop_back();
+    const std::string caseAndDay = substrFromIndex(pathTwoBack, "/", -2);
+    const std::string calibSceneName = substrFromIndex(inputDir, "/", -1);
 
-    // The processed point clouds are scaled 1000 times. Do the same here.
-    // The fourth one in a trs matrix expresses shear. We do not want to shear, so we create a block that targets the 1s before it.
-    Eigen::Matrix4f scaleMatrix = Eigen::Matrix4f::Identity();
-    scaleMatrix.block<4,3>(0,0) *= 1000;
-    pcl::transformPointCloud(*pointcloud, *pointcloud, scaleMatrix);
+    // const std::string caseName = caseAndDay.substr(0, getStrIndex(caseAndDay, "/", 1));
+    // const int caseNum = std::stoi(
+    //     caseName.substr(
+    //         getStrIndex(caseName, "_", 0) + 1
+    //     )
+    // );    
+    
+    boostfs::path boostpath = boostfs::path(inputDir + "/../../data");
+    boostfs::directory_iterator itr(boostpath);
+    for (; itr != boostfs::directory_iterator(); itr++) {
+        const std::string currentDir = itr->path().string();
+        if (!boost::regex_search(currentDir, searchThisDirectory)) {
+            continue;
+        }
 
-    pcl::PLYWriter writer = pcl::PLYWriter();
+        const std::string dataSceneName = substrFromIndex(currentDir, "/", -1);
+        const std::string outputTarget = outputBase + caseAndDay + dataSceneName;
 
-    // TODO write code that finds the intersection between the inputDir and the outputBase to calculate debugbase dynamically
-    const std::string debugbasedir = "/home/steven/Desktop/ulcerdatabase/patients";
-    std::string currentTarget = inputDir.substr(
-        inputDir.find(debugbasedir) + debugbasedir.length()
-    );
-    std::string fullExportPath = outputBase + currentTarget;
-    // std::cout << fullExportPath << std::endl;
+        if (!searchExportList(caseAndDay + dataSceneName + calibSceneName)) {
+            continue;
+        }
 
-    boostfs::create_directories(fullExportPath);
-    writer.write(fullExportPath + "/rgb.ply", *pointcloud);    
+        cv::Mat actualrgb = cv::imread(currentDir + "/photo.jpg");
+        cv::cvtColor(actualrgb, actualrgb, cv::COLOR_BGR2RGB);
 
-    // cv::imshow("sldkfj", amplitudeImage);
-    // cv::waitKey(0);
-        
+        cv::Mat warped;
+        cv::warpPerspective(actualrgb, warped, homography, DEPTH_BLOCK_SIZE);
+        cv::cvtColor(warped, warped, cv::COLOR_BGR2RGB);
+
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = readPointCloudDir(currentDir + "/depth_camera/", warped);
+
+        // The processed point clouds are scaled 1000 times. Do the same here.
+        // The fourth one in a trs matrix expresses shear. We do not want to shear, so we create a block that targets the 1s before it.
+        Eigen::Matrix4f scaleMatrix = Eigen::Matrix4f::Identity();
+        scaleMatrix.block<4,3>(0,0) *= 1000;
+        pcl::transformPointCloud(*pointcloud, *pointcloud, scaleMatrix);
+
+        writePointCloud(pointcloud, outputTarget, calibSceneName + ".ply");
+        // cv::imshow("sldkfj", amplitudeImage);
+        // cv::waitKey(0);
+
+    }
+
 }
 
 /**
- * Verifies if a directory contains a matching sub-directory, as defined in `regexCriteria`, and if so, executes an arbitrary function, for each matching sub-directory.
- * @param b An optional arbitrary string to pass to the function. It is the second argument of the function. The first argument is always the discovered directory.
+ * Verifies if a directory contains a matching sub-directory, as defined in `regexCriteria`, and if so, executes a specified function, for each matching sub-directory.
+ * @param b An optional arbitrary string to pass to the function. It is the second argument of the function passed. The first argument is always the discovered directory.
 */
 bool searchDirs(std::string basePath, std::deque<std::string> regexCriteria, void (*doWhenMet)(std::string, std::string), const std::string b = "") {
     // This function exists for a few reasons:
@@ -377,7 +565,6 @@ bool searchDirs(std::string basePath, std::deque<std::string> regexCriteria, voi
         // We stop at one criterion left because it is the last. Directory names can be treated exclusive here.
         // TODO write wrapper function that asserts > 1
         if (regexCriteria.size() == 1) {
-            // inputDir = currentPath;
             (*doWhenMet)(currentPath, b);
             customFunctionExecuted = true;
         }
@@ -397,6 +584,30 @@ bool searchDirs(std::string basePath, std::deque<std::string> regexCriteria, voi
     }
     return customFunctionExecuted;
 };
+
+
+// void searchData(const std::string baseDir, const std::string outputBase) {
+
+//     const std::vector<std::string> a = {"case_\\d*$", "day_\\d*$", "data$", "scene_\\d*$"};
+//     std::deque<std::string> b;
+//     for (std::string thing : a) {
+//         b.push_back(thing);
+//     }
+//     searchDirs(baseDir, b, relativeCalib, outputBase);
+
+// }
+
+// void relativeCalib(std::string dataScene, std::string outputBase) {
+//     const std::vector<std::string> a = {"scene_\\d*$"};
+//     std::deque<std::string> b;
+//     for (std::string thing : a) {
+//         b.push_back(thing);
+//     }
+//     searchDirs(dataScene + "/../../data", b, calibrateAndExport, outputBase);
+// }
+
+
+
 
 int main(int argc, char* argv[]) {
 
@@ -436,7 +647,7 @@ int main(int argc, char* argv[]) {
         for (std::string thing : a) {
             b.push_back(thing);
         }
-        searchDirs(debugbasedir, b, detectChessCorners, debugexportbase);
+        searchDirs(debugbasedir, b, calibrateAndExport, debugexportbase);
 
     }
 
