@@ -13,6 +13,8 @@
 #include <filesystem>
 #include <iostream>
 #include <regex>
+#include <algorithm>
+#include <string>
 
 #include <pcl/common/transforms.h>
 #include <pcl/point_cloud.h>
@@ -30,6 +32,7 @@
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string/find.hpp>
 #include <boost/regex.hpp>
+// #include <boost/algorithm/string.hpp>
 
 namespace boostfs = boost::filesystem;
 namespace chrono = std::chrono;
@@ -37,7 +40,7 @@ namespace chrono = std::chrono;
 using std::chrono_literals::operator""ms;
 
 const std::string CWD = boostfs::current_path().string();
-const std::string EXPORT_LIST_PATH = CWD + "/exportlist.txt";
+const std::string EXPORT_LIST_PATH = "/home/steven/Desktop/pointcloud-image-registration-projection/exportlist.txt";
 
 const cv::Size DEPTH_BLOCK_SIZE = cv::Size(176, 144);
 
@@ -117,8 +120,8 @@ std::vector<double> readDatFile(const std::string abspath, const Block block) {
 }
 
 
-pcl::PointXYZRGB pointFromVectorsAndPixel(double x, double y, double z, cv::Vec3b rgb) {
-    pcl::PointXYZRGB point;
+pcl::PointXYZRGBL pointFromVectorsAndPixel(double x, double y, double z, cv::Vec3b rgb, cv::Vec3b mask) {
+    pcl::PointXYZRGBL point;
 
     point.x = x;
     point.y = y;
@@ -128,54 +131,66 @@ pcl::PointXYZRGB pointFromVectorsAndPixel(double x, double y, double z, cv::Vec3
     point.g = rgb[1];
     point.b = rgb[2];
 
+    // uint8_t label = (mask[0] + mask[1] + mask[2]) / sizeof(uint8_t);
+    int label = (mask[0] + mask[1] + mask[2]) / 3;
+    // std::cout<<mask<<std::endl;
+
+    if (label > 0) {
+        point.label = 1;
+    }
+    else {
+        point.label = 0;
+    }
+
     return point;
 }
 
 
-/**
- * Accepts a path to a .dat file and creates a point cloud, texturing it with a given cv::Mat.
- * @param abspath A file or folder path.
- * @param texture An image to colour the point cloud with.
- */
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr readPointCloudFile(const std::string abspath, const cv::Mat texture) {
-    // This function unequally mixes file IO with processing something else. Could be bad practice, yes, but I couldn't enable image preprocessing with a string to the image path.
+// /**
+//  * Accepts a path to a .dat file and creates a point cloud, texturing it with a given cv::Mat.
+//  * @param abspath A file or folder path.
+//  * @param texture An image to colour the point cloud with.
+//  */
+// pcl::PointCloud<pcl::PointXYZRGBL>::Ptr readPointCloudFile(const std::string abspath, const cv::Mat texture, const cv::Mat mask) {
+//     // This function unequally mixes file IO with processing something else. Could be bad practice, yes, but I couldn't enable image preprocessing with a string to the image path.
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr result(new pcl::PointCloud<pcl::PointXYZRGB>);
+//     pcl::PointCloud<pcl::PointXYZRGBL>::Ptr result(new pcl::PointCloud<pcl::PointXYZRGBL>);
     
-    // Note I could reimplement this function to get the data as it is being read. However, readDatFile is not designed to read multiple parts of a file at once, so I would rather not.
-    const std::vector<double> x = readDatFile(abspath, X);
-    const std::vector<double> y = readDatFile(abspath, Y);
-    const std::vector<double> z = readDatFile(abspath, Distance);
+//     // Note I could reimplement this function to get the data as it is being read. However, readDatFile is not designed to read multiple parts of a file at once, so I would rather not.
+//     const std::vector<double> x = readDatFile(abspath, X);
+//     const std::vector<double> y = readDatFile(abspath, Y);
+//     const std::vector<double> z = readDatFile(abspath, Distance);
 
-    const uint minlength = minOfThree(x.size(), y.size(), z.size());
-    const int numPixels = texture.cols * texture.rows;
+//     const uint minlength = minOfThree(x.size(), y.size(), z.size());
+//     const int numPixels = texture.cols * texture.rows;
 
-    // int width;
-    // int height;
+//     // int width;
+//     // int height;
 
-    // bool widthIsSet, heightIsSet = false;
+//     // bool widthIsSet, heightIsSet = false;
 
-    assert(minlength <= numPixels);
+//     assert(minlength <= numPixels);
 
-    for (uint i = 0; i < minlength; i++) {
-        pcl::PointXYZRGB point = pointFromVectorsAndPixel(
-            x.at(i),
-            y.at(i),
-            z.at(i),
-            texture.at<cv::Vec3b>(i / numPixels, i % numPixels)
-        );
-        result->points.push_back(point);
-    }
+//     for (uint i = 0; i < minlength; i++) {
+//         pcl::PointXYZRGBL point = pointFromVectorsAndPixel(
+//             x.at(i),
+//             y.at(i),
+//             z.at(i),
+//             texture.at<cv::Vec3b>(i / numPixels, i % numPixels),
+//             mask.at<cv::Vec3b>(i / numPixels, i % numPixels)
+//         );
+//         result->points.push_back(point);
+//     }
 
-    // result->width = result->size();
-    // result->height = 1;
+//     // result->width = result->size();
+//     // result->height = 1;
 
-    result->width = DEPTH_BLOCK_SIZE.width;
-    result->height = DEPTH_BLOCK_SIZE.height;
+//     result->width = DEPTH_BLOCK_SIZE.width;
+//     result->height = DEPTH_BLOCK_SIZE.height;
 
-    return result;
+//     return result;
 
-}
+// }
 
 
 /**
@@ -183,13 +198,14 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr readPointCloudFile(const std::string absp
  * @param abspath A file or folder path.
  * @param texture An image to colour the point cloud with.
  */
-pcl::PointCloud<pcl::PointXYZRGB>::Ptr readPointCloudDir(const std::string absdir, cv::Mat texture) {
+pcl::PointCloud<pcl::PointXYZRGBL>::Ptr readPointCloudDir(const std::string absdir, cv::Mat texture, cv::Mat mask) {
     // This function unequally mixes file IO with processing something else. Could be bad practice, yes, but I couldn't enable image preprocessing with a string to the image path.
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr result(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGBL>::Ptr result(new pcl::PointCloud<pcl::PointXYZRGBL>);
 
     const int numPixels = texture.cols * texture.rows;
     cv::cvtColor(texture, texture, cv::COLOR_BGR2RGB);
+    cv::cvtColor(mask, mask, cv::COLOR_BGR2RGB);
 
     // const char* matchString = std::string("depth_camera_\\d+\\.dat").c_str();
     // boost::regex searchThisDirectory(matchString);
@@ -236,11 +252,12 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr readPointCloudDir(const std::string absdi
         }        
         else {
             for (int i = 0; i < minlength; i++) {
-                pcl::PointXYZRGB point = pointFromVectorsAndPixel(
+                pcl::PointXYZRGBL point = pointFromVectorsAndPixel(
                     x.at(i),
                     y.at(i),
                     z.at(i),
-                    texture.at<cv::Vec3b>(i / numPixels, i % numPixels)
+                    texture.at<cv::Vec3b>(i / numPixels, i % numPixels),
+                    mask.at<cv::Vec3b>(i / numPixels, i % numPixels)
                 );
                 result->points.push_back(point);
             }
@@ -349,7 +366,7 @@ cv::Mat calibrateImage(std::string inputDir) {
     bool rgbfound = cv::findChessboardCorners(photoImage, cv::Size(8, 7), rgbcorners);
 
 
-    if (!depthfound || !rgbfound) {
+    if (!(depthfound && rgbfound)) {
         throw std::runtime_error("Corners detection mismatch. depth: " + bolst(depthfound) + " rgb: " + bolst(rgbfound));
     }
 
@@ -411,10 +428,10 @@ bool searchExportList(std::string caseDayDataScene) {
 
 
 
-void writePointCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud, std::string exportTo, std::string fname) {
+void writePointCloud(pcl::PointCloud<pcl::PointXYZRGBL>::Ptr pointcloud, std::string exportTo, std::string fname) {
     pcl::PLYWriter writer = pcl::PLYWriter();
     boostfs::create_directories(exportTo);
-    writer.write(exportTo + fname, *pointcloud);    
+    writer.write(exportTo + "/" + fname, *pointcloud);    
 }
 
 
@@ -430,6 +447,20 @@ std::string substrFromIndex(std::string searchString, std::string searchFor, int
     int index = getStrIndex(searchString, searchFor, nth);
     std::string s = searchString.substr(index);
     return s;
+}
+
+cv::Mat readAlignedImage(std::string path, cv::Mat homography) {
+    cv::Mat actualrgb = cv::imread(path);
+    cv::cvtColor(actualrgb, actualrgb, cv::COLOR_BGR2RGB);
+
+    // cv::Mat depthimage = readAmplitudeImageDir(inputDir + "/depth_camera");
+    // cv::imwrite("/home/steven/Desktop/depth2.png", depthimage);
+
+    cv::Mat warped;
+    cv::warpPerspective(actualrgb, warped, homography, DEPTH_BLOCK_SIZE);
+    cv::cvtColor(warped, warped, cv::COLOR_BGR2RGB);
+
+    return warped;
 }
 
 
@@ -470,17 +501,16 @@ void calibrateAndExport(std::string inputDir, std::string outputBase) {
         const std::string outputTarget = outputBase + caseAndDay + dataSceneName;
 
         if (!searchExportList(caseAndDay + dataSceneName + calibSceneName)) {
+            std::cout << "Skip " + currentDir << std::endl;
             continue;
         }
+        std::cout << "Process " + currentDir << std::endl;
 
-        cv::Mat actualrgb = cv::imread(currentDir + "/photo.jpg");
-        cv::cvtColor(actualrgb, actualrgb, cv::COLOR_BGR2RGB);
 
-        cv::Mat warped;
-        cv::warpPerspective(actualrgb, warped, homography, DEPTH_BLOCK_SIZE);
-        cv::cvtColor(warped, warped, cv::COLOR_BGR2RGB);
+        cv::Mat warpedRgb = readAlignedImage(currentDir + "/photo.jpg", homography);
+        cv::Mat warpedMask = readAlignedImage(currentDir + "/mask.png", homography);
 
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = readPointCloudDir(currentDir + "/depth_camera/", warped);
+        pcl::PointCloud<pcl::PointXYZRGBL>::Ptr pointcloud = readPointCloudDir(currentDir + "/depth_camera/", warpedRgb, warpedMask);
 
         // The processed point clouds are scaled 1000 times. Do the same here.
         // The fourth one in a trs matrix expresses shear. We do not want to shear, so we create a block that targets the 1s before it.
@@ -488,7 +518,11 @@ void calibrateAndExport(std::string inputDir, std::string outputBase) {
         scaleMatrix.block<4,3>(0,0) *= 1000;
         pcl::transformPointCloud(*pointcloud, *pointcloud, scaleMatrix);
 
-        writePointCloud(pointcloud, outputTarget, calibSceneName + ".ply");
+        std::string fname = caseAndDay + calibSceneName + ".ply";
+        std::replace(fname.begin(), fname.end(), '/', '_');
+        fname = fname.substr(1, fname.length()-1);
+        // std::cout<<outputBase<<std::endl;
+        writePointCloud(pointcloud, outputBase, fname);
         // cv::imshow("sldkfj", amplitudeImage);
         // cv::waitKey(0);
 
@@ -566,11 +600,11 @@ int main(int argc, char* argv[]) {
     // std::vector<std::string> rawpcdata = readFile(argv[1]);
 
     // Top two vars are used for example clouds/images
-    const std::string debugpcpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
-    const std::string debugimgpath = "/home/steven/Desktop/ulcerdatabase/patients/case_1/day_1/calib/scene_1/photo.jpg";
+    const std::string debugpcpath = "/games/datasets/ulcerdatabase/patients/case_1/day_1/calib/scene_1/depth_camera/depth_camera_1.dat";
+    const std::string debugimgpath = "/games/datasets/ulcerdatabase/patients/case_1/day_1/calib/scene_1/photo.jpg";
     
-    const std::string debugbasedir = "/home/steven/Desktop/ulcerdatabase/patients";
-    const std::string debugexportbase = "/home/steven/Desktop/alignedwounds";
+    const std::string debugbasedir = "/games/datasets/ulcerdatabase/patients";
+    const std::string debugexportbase = "/games/datasets/alignedwounds_labels";
     const bool debuguseregistration = true;
 
     if (debuguseregistration) {
@@ -590,8 +624,8 @@ int main(int argc, char* argv[]) {
     // cv::Mat img = cv::imread(debugimgpath);
     // cv::resize(img, img, DEPTH_BLOCK_SIZE);
     // // std::unordered_map<std::string, std::vector<std::vector<std::string>>> depthdata = readDatFile(debugpcpath, "% ");
-    // // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = pointCloudFromData(depthdata, img);
-    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pointcloud = readPointCloudFile(debugpcpath, img);
+    // // pcl::PointCloud<pcl::PointXYZRGBL>::Ptr pointcloud = pointCloudFromData(depthdata, img);
+    // pcl::PointCloud<pcl::PointXYZRGBL>::Ptr pointcloud = readPointCloudFile(debugpcpath, img);
 
     // //Create the visualiser and render it.
     // pcl::visualization::PCLVisualizer::Ptr viewer = visualizePointCloud(pointcloud);
